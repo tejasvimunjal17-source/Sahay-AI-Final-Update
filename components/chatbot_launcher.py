@@ -86,14 +86,14 @@ def _fixed_chatbot_css() -> str:
         bottom: 22px;
         right: 22px;
         z-index: 999;
-        width: min(360px, 92vw);
-        max-height: 78vh;
+        width: min(380px, 92vw);
+        max-height: 80vh;
         overflow-y: auto;
         background: {panel_bg};
         border: 1px solid {panel_border};
         border-radius: 18px;
         box-shadow: {panel_shadow};
-        padding: 14px 16px;
+        padding: 16px 18px;
     }}
     /* The toggle button (always the first button in this container) —
        compact, gradient, pill-shaped, reads as "the launcher" whether
@@ -108,12 +108,29 @@ def _fixed_chatbot_css() -> str:
         font-weight: 600;
         box-shadow: 0 6px 18px rgba(47,93,138,0.30);
     }}
+    /* CHANGE 4 (visual reference: LearnMate's 2-column quick-prompt
+       grid): inside the floating panel ONLY, wrap the suggestion-chip
+       row (rendered as st.columns() in Python — unchanged, still one
+       shared function with pages/companion.py's full-width row) onto
+       two per line instead of cramming all four into one row. This is
+       CSS-only — it does not touch render_suggestion_chips()'s layout
+       logic, so the full Companion page (which has plenty of width)
+       keeps its existing single-row appearance untouched. */
+    div[class*="st-key-sahay_chatbot"] div[data-testid="stHorizontalBlock"] {{
+        flex-wrap: wrap !important;
+        gap: 8px !important;
+    }}
+    div[class*="st-key-sahay_chatbot"] div[data-testid="stHorizontalBlock"] > div {{
+        flex: 1 1 45% !important;
+        min-width: 45% !important;
+        width: auto !important;
+    }}
     @media (max-width: 768px) {{
         div[class*="st-key-sahay_chatbot"] {{
             right: 12px;
             bottom: 12px;
             width: 90vw;
-            max-height: 70vh;
+            max-height: 72vh;
         }}
     }}
     </style>
