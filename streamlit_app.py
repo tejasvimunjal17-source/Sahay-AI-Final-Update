@@ -48,9 +48,10 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-st.session_state.setdefault("sahay_dark_mode", False)
+st.session_state.setdefault("sahay_dark_mode", True)
 st.session_state.setdefault("sahay_view", "landing")   # "landing" | "app"
 st.session_state.setdefault("sahay_demo_mode", False)
+st.session_state.setdefault("sahay_chatbot_enabled", True)  # UI-visibility toggle only — see pages/settings.py
 inject_css(dark_mode=st.session_state["sahay_dark_mode"])
 
 PAGE_TITLES = {
@@ -174,7 +175,12 @@ def main() -> None:
         st.error("Something went wrong displaying this page. Please try again.")
         st.caption(f"Technical detail (visible in dev preview only): {exc}")
 
-    render_chatbot_launcher()
+    # UI-visibility only (pages/settings.py's "AI Chatbot" toggle) — the
+    # chatbot's own implementation, safety pipeline, and tool architecture
+    # are completely unaffected; this only decides whether the floating
+    # button/panel is rendered on screen at all this run.
+    if st.session_state.get("sahay_chatbot_enabled", True):
+        render_chatbot_launcher()
 
 
 main()
