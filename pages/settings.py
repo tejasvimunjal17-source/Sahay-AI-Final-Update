@@ -4,20 +4,23 @@ users only — Demo Mode shows an explanatory message instead, since
 feedback requires a real account to be meaningfully attributable and
 there's nothing to persist it to in Demo Mode.
 
-PHASE 6F: header swapped to render_page_header (no description added —
-none existed before). The one existing "##### Send feedback" heading
-became a render_section_header call, title only (no description — none
-existed). The dark-mode toggle line is UNTOUCHED, character-for-
-character — this is the single source of truth for
-`st.session_state["sahay_dark_mode"]`, read by components/theme.py's
+CONTROLLED UI ENHANCEMENT TASK: the dark-mode toggle's default flipped
+from False to True (Dark Mode is now ON by default app-wide, per
+streamlit_app.py's `st.session_state.setdefault("sahay_dark_mode",
+True)`) — everything else about it (the `st.toggle("Dark mode", ...)`
+call itself, no widget key, same comparison-then-write-then-rerun
+logic, same `sahay_dark_mode` key read by components/theme.py's
 inject_css() and components/chatbot_launcher.py's
-_fixed_chatbot_css() app-wide, so it was left exactly as it was: same
-`st.toggle("Dark mode", value=...)` call (no widget key, same as
-before), same comparison-then-write-then-rerun logic, same
-`sahay_dark_mode` key, nothing added, nothing renamed. The notification
-selectbox, the auth check, the feedback rating/message widgets and
-their keys, and the `conv_db.submit_feedback(...)` call are all
-byte-identical to before."""
+_fixed_chatbot_css() app-wide) is unchanged. A second toggle, "AI
+Chatbot", was added directly below it, following the identical
+pattern, writing a new `sahay_chatbot_enabled` key (default True) that
+streamlit_app.py reads to decide whether to call
+render_chatbot_launcher() at all this run — a UI-visibility switch
+only; it does not touch the chatbot's implementation, safety pipeline,
+or tool architecture. The notification selectbox, the auth check, the
+feedback rating/message widgets and their keys, and the
+`conv_db.submit_feedback(...)` call are all byte-identical to
+before."""
 
 from __future__ import annotations
 
@@ -30,10 +33,23 @@ from backend import auth
 
 def render() -> None:
     render_page_header("Settings")
-    dark = st.toggle("Dark mode", value=st.session_state.get("sahay_dark_mode", False))
-    if dark != st.session_state.get("sahay_dark_mode", False):
+    dark = st.toggle("Dark mode", value=st.session_state.get("sahay_dark_mode", True))
+    if dark != st.session_state.get("sahay_dark_mode", True):
         st.session_state["sahay_dark_mode"] = dark
         st.rerun()
+
+    # UI-CONTROLLED-VISIBILITY ONLY toggle for the existing floating
+    # chatbot launcher (components/chatbot_launcher.py). Does not touch
+    # chatbot/safety.py, chatbot/response_generator.py,
+    # AGENT_TOOL_ALLOWLIST, TOOL_REGISTRY, or TOOL_SCHEMAS in any way —
+    # turning this off only skips rendering the button/panel in
+    # streamlit_app.py; the chatbot implementation itself is untouched
+    # and comes back exactly as it was when turned back on.
+    chatbot_on = st.toggle("AI Chatbot", value=st.session_state.get("sahay_chatbot_enabled", True))
+    if chatbot_on != st.session_state.get("sahay_chatbot_enabled", True):
+        st.session_state["sahay_chatbot_enabled"] = chatbot_on
+        st.rerun()
+
     st.selectbox("Notification preferences", ["Email", "None"], disabled=True)
 
     st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
