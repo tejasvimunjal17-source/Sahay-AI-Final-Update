@@ -282,12 +282,12 @@ def inject_css(dark_mode: bool = False) -> None:
             border: none !important;
             transition: transform 0.15s ease, box-shadow 0.15s ease;
         }}
-        .stButton > button[kind="primary"] {{
+        .stButton > button[kind="primary"], .stLinkButton > a[kind="primary"] {{
             background: var(--sahay-gradient) !important;
             color: #FFFFFF !important;
             box-shadow: 0 6px 18px rgba(47, 93, 138, 0.28);
         }}
-        .stButton > button[kind="primary"]:hover {{
+        .stButton > button[kind="primary"]:hover, .stLinkButton > a[kind="primary"]:hover {{
             box-shadow: 0 10px 24px rgba(47, 93, 138, 0.36);
             transform: translateY(-1px);
         }}
