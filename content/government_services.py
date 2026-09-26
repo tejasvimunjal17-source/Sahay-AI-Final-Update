@@ -28,7 +28,7 @@ GOVERNMENT_SERVICES: list[dict] = [
         "intended_for": "Students seeking general medical consultation without an in-person hospital visit.",
         "how_to_access": "Visit the official eSanjeevani portal and follow its current registration and consultation steps.",
         "important_note": "Availability, doctor specialties, and steps can change — always check the official portal for current details.",
-        "official_url": None,  # TODO: add verified official portal URL before launch
+        "official_url": "https://esanjeevani.mohfw.gov.in/",  # verified by user, applied as supplied
     },
     {
         "key": "abha",
@@ -38,7 +38,7 @@ GOVERNMENT_SERVICES: list[dict] = [
         "intended_for": "Any resident wanting a unified digital health record, including students.",
         "how_to_access": "Create an ABHA ID through the official ABHA portal or app using the current verified process.",
         "important_note": "Sahay AI cannot create or issue an ABHA ID itself — this is guidance only.",
-        "official_url": None,  # TODO: add verified official portal URL before launch
+        "official_url": "https://abha.abdm.gov.in/",  # verified by user, applied as supplied
     },
     {
         "key": "ayushman_bharat",
@@ -48,7 +48,7 @@ GOVERNMENT_SERVICES: list[dict] = [
         "intended_for": "Eligibility varies by household/state criteria — verify on the official portal.",
         "how_to_access": "Check eligibility and application steps on the official Ayushman Bharat / PM-JAY portal.",
         "important_note": "Eligibility, benefits, and documents required can change — Sahay AI does not determine eligibility.",
-        "official_url": None,  # TODO: add verified official portal URL before launch
+        "official_url": "https://pmjay.gov.in/",  # verified by user, applied as supplied
     },
     {
         "key": "govt_hospitals",
@@ -58,7 +58,7 @@ GOVERNMENT_SERVICES: list[dict] = [
         "intended_for": "Students needing in-person care, especially where cost is a barrier.",
         "how_to_access": "Use an official government health-facility locator, or ask your campus health center for the nearest option.",
         "important_note": "Services and availability vary by location.",
-        "official_url": None,  # TODO: add verified locator/official portal URL before launch
+        "official_url": "https://www.clinicalestablishments.mohfw.gov.in/",  # verified by user, applied as supplied
     },
     {
         "key": "emergency_crisis",
@@ -68,7 +68,7 @@ GOVERNMENT_SERVICES: list[dict] = [
         "intended_for": "Anyone in immediate danger or crisis.",
         "how_to_access": "See the Human Help section for currently available verified resources.",
         "important_note": "If you are in immediate danger, contact local emergency services right away.",
-        "official_url": None,
+        "official_url": "https://112.gov.in/",  # verified by user, applied as supplied
     },
     {
         "key": "mental_health_support",
@@ -78,6 +78,6 @@ GOVERNMENT_SERVICES: list[dict] = [
         "intended_for": "Students wanting professional support beyond the AI companion.",
         "how_to_access": "See the Human Help section for currently available verified resources.",
         "important_note": "Sahay AI is not a substitute for professional mental-health care.",
-        "official_url": None,  # TODO: add verified resource list before launch
+        "official_url": "https://telemanas.mohfw.gov.in/",  # verified by user, applied as supplied
     },
 ]
