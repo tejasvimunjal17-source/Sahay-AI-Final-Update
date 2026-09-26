@@ -27,7 +27,7 @@ import streamlit as st
 from config import APP_CONFIG, SUPABASE_USER_CONFIG
 from backend.logging_config import get_logger
 from backend import auth
-from components.theme import inject_css
+from components.theme import inject_css, hide_sidebar_css
 from components.landing import render_landing_page
 from components.sidebar import render_sidebar, ALL_PAGE_KEYS, DEFAULT_PAGE
 from components.topbar import render_topbar
@@ -154,6 +154,13 @@ def main() -> None:
 
     if not authenticated and not is_demo:
         st.session_state["sahay_view"] = "landing"
+        # BUG FIX (Issue 1): forcibly collapse any stale sidebar DOM the
+        # browser may have retained from a previous authenticated/Demo
+        # Mode run (e.g. right after a logout/Demo-Mode-close click).
+        # render_sidebar() is never called on this branch — this only
+        # guards against a frontend rendering artifact, not a Python
+        # logic bug — see components/theme.py: hide_sidebar_css().
+        hide_sidebar_css()
         render_landing_page()
         return
 
