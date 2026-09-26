@@ -412,3 +412,39 @@ def inject_css(dark_mode: bool = False) -> None:
         """,
         unsafe_allow_html=True,
     )
+
+
+def hide_sidebar_css() -> None:
+    """BUG FIX (Issue 1 — sidebar remnant after logout / Demo Mode close).
+
+    Root cause, confirmed from source: `components/sidebar.py`'s
+    `render_sidebar()` is the ONLY place in the entire codebase that ever
+    writes into `st.sidebar` (a single `with st.sidebar:` block), and it
+    is only ever called from streamlit_app.py's authenticated/Demo-Mode
+    branch — the landing-page branch returns before reaching it, so no
+    Python code writes any sidebar content on that run. The remaining
+    empty sidebar shell/shadow the user observed is therefore a
+    Streamlit frontend rendering artifact: the browser can retain the
+    previously-rendered `[data-testid="stSidebar"]` DOM element's
+    reserved width across the rerun that follows a logout/Demo-Mode-close
+    click, even though the new run never touches `st.sidebar` at all.
+
+    This function is called ONLY from streamlit_app.py's landing branch
+    (never from the authenticated/app branch, where the sidebar must
+    keep working exactly as before) and force-collapses that element via
+    CSS — deterministically removing its width/shadow regardless of
+    whatever the frontend would otherwise have retained. It does not
+    touch components/sidebar.py, NAV_GROUPS, ALL_PAGE_KEYS,
+    PAGE_RENDERERS, or sahay_page in any way."""
+    st.markdown(
+        """
+        <style>
+        section[data-testid="stSidebar"] {
+            display: none !important;
+            width: 0 !important;
+            min-width: 0 !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
