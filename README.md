@@ -1,19 +1,25 @@
+<div align="center">
+
 # 💙 Sahay AI
 
 **An AI-powered student wellness companion — a calm, supportive space to reflect, check in, and find real support.**
-
-Sahay AI is a Streamlit web application that combines a conversational AI companion with practical wellness tools — mood check-ins, relaxation activities, self-reported wellness trends, and curated support resources — for students navigating everyday stress. It is **not** a therapist, doctor, or crisis service, and it never claims to be one.
-
-Built for the Edunet Foundation × IBM SkillsBuild "AI for Non-Technical Students" internship, problem statement: *Mental Health Companion Chatbot*.
 
 ![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=flat&logo=python&logoColor=white)
 ![Streamlit](https://img.shields.io/badge/Streamlit-FF4B4B?style=flat&logo=streamlit&logoColor=white)
 ![Supabase](https://img.shields.io/badge/Supabase-3ECF8E?style=flat&logo=supabase&logoColor=white)
 ![AI](https://img.shields.io/badge/AI-OpenRouter-8B85C1?style=flat)
 
+</div>
+
+Sahay AI is a Streamlit web application that combines a conversational AI companion with practical wellness tools — mood check-ins, relaxation activities, self-reported wellness trends, and curated support resources — for students navigating everyday stress. It is **not** a therapist, doctor, or crisis service, and it never claims to be one.
+
+Built for the Edunet Foundation × IBM SkillsBuild "AI for Non-Technical Students" internship, problem statement: *Mental Health Companion Chatbot*.
+
 ---
 
-## Table of Contents
+<details>
+<summary>📋 <strong>Table of Contents</strong></summary>
+<br>
 
 1. [Overview](#overview)
 2. [Key Features](#key-features)
@@ -33,6 +39,8 @@ Built for the Edunet Foundation × IBM SkillsBuild "AI for Non-Technical Student
 16. [Current Project Status](#current-project-status)
 17. [Potential Future Work](#potential-future-work)
 
+</details>
+
 ---
 
 ## Overview
@@ -44,6 +52,8 @@ Sahay AI gives students a low-pressure place to talk through what's on their min
 **What AI does here:** a conversational companion (built on a large language model via OpenRouter) that responds supportively to what a student shares, offers a non-clinical mood signal, and occasionally suggests a relevant wellness activity — always screened by a deterministic safety layer that runs independently of the model.
 
 **What Sahay AI is *not*:** it does not diagnose, prescribe, or claim to be a therapist, psychologist, psychiatrist, or doctor, and it does not replace professional or emergency care. If a student is in immediate danger, the app's Human Help page is designed to point them to real emergency and support channels — Sahay AI does not attempt to handle the situation itself.
+
+---
 
 ## Key Features
 
@@ -67,6 +77,8 @@ Sahay AI gives students a low-pressure place to talk through what's on their min
 | 🔐 **Authentication** | Email/password sign-up and login, password reset, and Google sign-in, all via Supabase Auth |
 | 🛡️ **Admin Panel** | A separate, isolated dashboard for administrators — never linked from student navigation |
 
+---
+
 ## Application Pages
 
 | Page | Purpose | Main Capabilities |
@@ -86,6 +98,8 @@ Sahay AI gives students a low-pressure place to talk through what's on their min
 | **Privacy** | Data control | Explanation of data handling; delete conversations or mood history |
 | **Settings** | App preferences | Dark mode, feedback submission |
 
+---
+
 ## AI Companion & Safety Pipeline
 
 The Companion is designed to be calm, supportive, and non-judgmental — a space to talk through how your day or week is going, not a diagnostic tool.
@@ -102,6 +116,8 @@ Every chat turn runs through a single, fixed pipeline (`chatbot/response_generat
 If `OPENROUTER_API_KEY` isn't configured, the app degrades gracefully to a clearly-labeled placeholder reply instead of failing — it never silently pretends to be connected.
 
 Signed-in users get a full, persisted conversation history; the floating Companion widget available on every dashboard page is a lighter, session-only quick-chat, deliberately not wired to that persisted history.
+
+---
 
 ## Technology Stack
 
@@ -141,6 +157,8 @@ Signed-in users get a full, persisted conversation history; the floating Compani
 | Streamlit (any Streamlit-compatible host) | Hosting |
 | `.streamlit/config.toml` | Suppresses Streamlit's default multipage navigation/toolbar in favor of Sahay's own custom UI |
 
+---
+
 ## System Architecture
 
 ```
@@ -173,6 +191,8 @@ AI Services            Backend / Data Layer
                         RLS-scoped per user
 ```
 
+---
+
 ## Application Navigation
 
 Sahay AI does **not** use Streamlit's native file-based multipage routing. All 14 user-facing modules under `pages/` are plain Python files, each exposing a single `render()` function — they are wired together entirely by the application's own custom router, not by Streamlit's automatic page discovery.
@@ -180,6 +200,8 @@ Sahay AI does **not** use Streamlit's native file-based multipage routing. All 1
 `streamlit_app.py` maintains a `PAGE_RENDERERS` dictionary mapping a page key (e.g. `"overview"`, `"companion"`) to that page's `render` function. The currently active page is tracked in `st.session_state["sahay_page"]`, set by the custom sidebar (`components/sidebar.py`) whenever a navigation item is clicked, and dispatched each rerun via `PAGE_RENDERERS[current_page]()`. An import-time `assert` cross-checks `PAGE_RENDERERS`'s keys against `components/sidebar.py`'s `ALL_PAGE_KEYS`, so the two can't silently drift apart.
 
 The sidebar itself is a custom off-canvas drawer (fixed positioning, open/closed via `st.session_state["sahay_sidebar_open"]`), and the floating Companion widget is a separately fixed-position container — both built entirely in Streamlit/CSS, with no client-side routing framework involved.
+
+---
 
 ## Project Structure
 
@@ -252,6 +274,8 @@ sahay-ai/
 └── tests/                      # Mock-backed test suite
 ```
 
+---
+
 ## Streamlit App-Shell Configuration
 
 `.streamlit/config.toml` sets two Streamlit client options:
@@ -266,6 +290,8 @@ toolbarMode = "minimal"
 - **`toolbarMode = "minimal"`** reduces Streamlit's built-in header toolbar (menu, deploy/share controls).
 
 This configuration only affects Streamlit's own default chrome. It has no effect on, and cannot remove, any chrome added by a hosting provider around the app itself (for example, a platform-level "manage app" control on Streamlit Community Cloud) — that lives outside the application and is not something this project can control.
+
+---
 
 ## Installation & Setup
 
@@ -322,11 +348,15 @@ OPENROUTER_MODEL = "openai/gpt-4o-mini"
 SUPABASE_SERVICE_ROLE_KEY = "your_value"
 ```
 
+---
+
 ## Database Setup
 
 Sahay AI's persisted data (conversations, messages, mood events, wellness activity logs, profiles, feedback, safety events, and admin accounts) lives in a Supabase Postgres project, defined by 13 versioned SQL migrations in `database/migrations/`. If you're connecting a real Supabase project, apply these in order (`001_initial_schema.sql` through `013_safety_events.sql`) via the Supabase SQL editor before first use. Row Level Security policies (`002`, `008`) are part of this migration set and enforce that each signed-in user can only read or write their own rows.
 
 No database is required to explore the app in Demo Mode.
+
+---
 
 ## Authentication & Demo Mode
 
@@ -337,12 +367,16 @@ Sahay AI supports two ways to use the app:
 
 The **Admin Panel** is a third, completely separate system — see [Admin Panel](#admin-panel).
 
+---
+
 ## Reports & Data Export
 
 The Reports page builds a **Wellness Reflection Report** summarizing recent activity — conversation counts, mood check-ins, and completed activities — over a period you choose (7, 14, or 30 days). It is available as a **PDF** (via fpdf2) or **DOCX** (via python-docx) download.
 
 - **Signed-in users** get a real report built from their actual persisted data, always bounded to the selected period — never an unlimited history export.
 - **Demo Mode** generates a clearly-labeled *sample* report from the current session's chat only; nothing is read from or written to Supabase.
+
+---
 
 ## Privacy & Safety
 
@@ -357,6 +391,8 @@ Sahay AI is built around a few explicit principles, reflected directly in the ap
 
 Sahay AI does **not** claim to be fully secure, fully anonymous, or medically safe, and has not undergone an independent third-party security audit or any formal compliance certification (e.g. HIPAA, GDPR). It relies on Supabase's authentication and Row Level Security for data protection.
 
+---
+
 ## Admin Panel
 
 Administrators reach a separate dashboard via a `?admin=1` URL parameter — it is **never** linked from student-facing navigation. The admin system:
@@ -367,6 +403,8 @@ Administrators reach a separate dashboard via a `?admin=1` URL parameter — it 
 - has no code path reachable from a student account, and the floating Companion widget is never rendered inside it.
 
 There is no public admin sign-up flow. The first admin account must be created directly in the database — see the project's migration documentation for the exact steps.
+
+---
 
 ## Current Project Status
 
@@ -383,6 +421,8 @@ Sahay AI's frontend has gone through a staged, LearnMate-inspired visual redesig
 | Streamlit app-shell chrome cleanup | Implemented |
 
 The Companion page's visual redesign has been implemented in the codebase but had not yet received final explicit sign-off at the time of this README — it should not be read as a fully closed-out, approved milestone the way the other listed items are. Core functionality (authentication, conversation persistence, AI pipeline, safety screening, database operations) is implemented and unaffected by this distinction, which concerns presentation/UI review status only.
+
+---
 
 ## Potential Future Work
 
