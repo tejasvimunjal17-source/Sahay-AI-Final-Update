@@ -178,9 +178,14 @@ def _render_drawer_shell() -> None:
         drawer (the sidebar is no longer a flex/grid sibling once fixed,
         so this has to be set explicitly — same reasoning as LearnMate's
         version). Mobile instead overlays (no margin shift; see the
-        backdrop below). ---- */
+        backdrop below). Streamlit's own fixed bottom bar for
+        st.chat_input (`stBottom`) is a sibling of `.main`, not a child
+        of it, so it needs the same treatment here or it stays flush to
+        the left edge and ends up cropped underneath the fixed drawer
+        when open. ---- */
         @media (min-width: 641px) {{
-            section[data-testid="stMain"], .main {{
+            section[data-testid="stMain"], .main,
+            div[data-testid="stBottom"] {{
                 margin-left: {main_margin} !important;
                 width: calc(100% - {main_margin}) !important;
                 max-width: calc(100% - {main_margin}) !important;
