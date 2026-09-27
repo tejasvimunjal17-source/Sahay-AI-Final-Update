@@ -208,6 +208,18 @@ def _render_drawer_shell() -> None:
                 inset: 0;
                 z-index: 999997;
             }}
+            /* Sahay Companion is the only page with a native
+            st.chat_input, and its fixed bottom bar (`stBottom`) has no
+            explicit z-index anywhere in the project — so on mobile,
+            where the sidebar uses this backdrop-overlay technique
+            (no margin shift, see the desktop-only media query above),
+            it was left to stack inconsistently against the backdrop
+            instead of behaving like the rest of the page. Pinning it
+            to the same tier as the backdrop keeps Companion's composer
+            visible/consistent with every other tab, open or closed. */
+            div[data-testid="stBottom"] {{
+                z-index: 999997 !important;
+            }}
             div[class*="st-key-{_BACKDROP_BTN_KEY}"] button {{
                 width: 100%;
                 height: 100%;
