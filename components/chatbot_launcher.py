@@ -83,7 +83,7 @@ def _fixed_chatbot_css() -> str:
     <style>
     div[class*="st-key-sahay_chatbot"] {{
         position: fixed !important;
-        bottom: 112px;
+        bottom: 22px;
         right: 22px;
         z-index: 999;
         width: min(380px, 92vw);
@@ -95,27 +95,23 @@ def _fixed_chatbot_css() -> str:
         box-shadow: {panel_shadow};
         padding: 16px 18px;
     }}
-    /* TARGET 2 (deployed-screenshot follow-up): the previous bottom:96px
-       cleared the native chat_input bar's own height, but still read as
-       visually tight against it in the actual deployed screenshots.
-       112px adds a clearer gap on top of that clearance so the launcher
-       and composer read as two separate bottom-area elements rather
-       than a stacked pair — matching mobile offset is in the existing
-       @media block further down.
-       TARGET 1 (deployed-screenshot follow-up): Streamlit's own fixed
-       bottom bar for st.chat_input (`stBottom`) was previously only
-       themed (background/border-top) — its inner content still
-       stretched to the bar's full sidebar-aware width, which is
-       correct for `stBottom` itself (needed for the Companion/sidebar
-       fix) but made the composer look stretched edge-to-edge instead
-       of a centered, max-width ChatGPT-style composer. Centering only
-       the *inner* wrapper (stBottomBlockContainer, the direct child
-       Streamlit already renders inside stBottom) — while leaving
-       stBottom's own sidebar-aware width/margin untouched — gets both:
-       the composer still shifts/resizes with the sidebar, but reads as
-       a contained, centered bar within that available space, with a
-       balanced margin on narrow viewports via the same min() rule
-       (no separate mobile override needed). */
+    /* Chatbot position reverted to its original bottom:22px (desktop)/
+       12px (mobile, in the @media block further down) by explicit
+       request — a brief clearance offset was tried here to avoid
+       overlapping the composer below, but was rolled back in favor of
+       leaving the launcher's position untouched. Note: on narrow
+       viewports the centered composer below spans nearly the full
+       width (min(760px, 100%-32px)), so the two can still sit close
+       together in the bottom-right corner there — flagged, not
+       silently fixed, since keeping the launcher exactly where it was
+       was the explicit ask.
+       Composer centering (unchanged from the prior correction):
+       Streamlit's own fixed bottom bar for st.chat_input (`stBottom`)
+       is themed (background/border) here, and its inner content is
+       given a max-width + auto margins so it reads as a centered,
+       ChatGPT-style composer instead of stretching edge-to-edge —
+       while `stBottom` itself keeps its own sidebar-aware width/margin
+       (needed for the Companion/sidebar fix) untouched. */
     div[data-testid="stBottom"] > div {{
         background: {panel_bg} !important;
         border: 1px solid {panel_border} !important;
@@ -161,7 +157,7 @@ def _fixed_chatbot_css() -> str:
     @media (max-width: 768px) {{
         div[class*="st-key-sahay_chatbot"] {{
             right: 12px;
-            bottom: 100px;
+            bottom: 12px;
             width: 90vw;
             max-height: 72vh;
         }}
