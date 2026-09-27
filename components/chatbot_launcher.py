@@ -83,7 +83,7 @@ def _fixed_chatbot_css() -> str:
     <style>
     div[class*="st-key-sahay_chatbot"] {{
         position: fixed !important;
-        bottom: 22px;
+        bottom: 96px;
         right: 22px;
         z-index: 999;
         width: min(380px, 92vw);
@@ -94,6 +94,30 @@ def _fixed_chatbot_css() -> str:
         border-radius: 18px;
         box-shadow: {panel_shadow};
         padding: 16px 18px;
+    }}
+    /* Streamlit's own fixed bottom bar for st.chat_input (`stBottom`)
+       occupies roughly the bottom ~80px of the viewport (its own
+       padding plus the input's height). The floating launcher/panel
+       above was previously anchored at bottom:22px, which sits inside
+       that strip and visually overlapped the Companion message input
+       (reported in the deployed screenshots). Anchoring it at 96px
+       instead (see the base rule above) clears that bar with a small
+       buffer, giving both elements their own space, on both mobile and
+       desktop — the matching mobile bottom offset is in the existing
+       @media block further down.
+       Native st.chat_input bottom bar currently renders with
+       Streamlit's own default background rather than the Sahay theme
+       (reported as looking visibly different from the rest of the
+       Companion page). Theme it with the same card colors used by the
+       floating panel above so both bottom-of-screen elements read as
+       one consistent design. */
+    div[data-testid="stBottom"] > div {{
+        background: {panel_bg} !important;
+        border-top: 1px solid {panel_border} !important;
+    }}
+    div[data-testid="stChatInput"] {{
+        background: {panel_bg} !important;
+        border: 1px solid {panel_border} !important;
     }}
     /* The toggle button (always the first button in this container) —
        compact, gradient, pill-shaped, reads as "the launcher" whether
@@ -128,7 +152,7 @@ def _fixed_chatbot_css() -> str:
     @media (max-width: 768px) {{
         div[class*="st-key-sahay_chatbot"] {{
             right: 12px;
-            bottom: 12px;
+            bottom: 88px;
             width: 90vw;
             max-height: 72vh;
         }}
