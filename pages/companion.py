@@ -153,7 +153,7 @@ def _render_demo() -> None:
         st.caption("Try one of these, or type your own message below.")
         render_suggestion_chips("sahay_fullpage_history", key_prefix="companion")
 
-    user_msg = st.chat_input("Message Sahay")
+    user_msg = st.chat_input("Message Sahay", key="companion_demo_chat_input")
     if user_msg:
         send_message("sahay_fullpage_history", user_msg)
         st.rerun()
@@ -187,7 +187,22 @@ def _render_authenticated(user) -> None:
         _render_history_panel(user, conv_db, convo_list)
 
     with chat_col:
-        _render_active_conversation(user, conv_db, generate_response, convo_list)
+        active_id = _render_active_conversation(user, conv_db, generate_response, convo_list)
+
+    # ISSUE #4 FIX: st.chat_input only auto-pins to the bottom of the
+    # viewport when it is called outside any layout container (st.columns,
+    # st.container, st.tabs, st.expander, ...). It was previously called
+    # inside the `chat_col` cell above, which made it render inline,
+    # mid-page, instead of anchored to the bottom like a normal chat UI.
+    # Calling it here — after the columns block has closed, at the same
+    # level render_page_header()/safety_note() render at — restores
+    # Streamlit's native bottom-pinned behavior. Same widget, same
+    # Issue #3 key; only *where* it's invoked changed.
+    if active_id:
+        user_msg = st.chat_input("Message Sahay", key="companion_authenticated_chat_input")
+        if user_msg:
+            _send_authenticated_message(user, conv_db, generate_response, active_id, user_msg)
+            st.rerun()
 
 
 def _render_history_panel(user, conv_db, convo_list: list[dict]) -> None:
@@ -269,7 +284,11 @@ def _group_by_recency(convo_list: list[dict]) -> list[tuple[str, list[dict]]]:
     return [("Today", groups["Today"]), ("Yesterday", groups["Yesterday"]), ("Older", groups["Older"])]
 
 
-def _render_active_conversation(user, conv_db, generate_response, convo_list: list[dict]) -> None:
+def _render_active_conversation(user, conv_db, generate_response, convo_list: list[dict]) -> str | None:
+    """Renders the active conversation's messages/mood/suggestion UI and
+    returns its active_id (or None if there's nothing to chat in yet), so
+    the caller can render st.chat_input outside the st.columns() layout —
+    see the ISSUE #4 FIX comment in _render_authenticated()."""
     active_id = st.session_state.get("sahay_active_conversation_id")
 
     if active_id and not any(c["id"] == active_id for c in convo_list):
@@ -310,11 +329,6 @@ def _render_active_conversation(user, conv_db, generate_response, convo_list: li
         st.caption("Try one of these, or type your own message below.")
         render_suggestion_chips_authenticated(user, conv_db, generate_response)
 
-    user_msg = st.chat_input("Message Sahay")
-    if user_msg:
-        _send_authenticated_message(user, conv_db, generate_response, active_id, user_msg)
-        st.rerun()
-
     if messages:
         c1, c2 = st.columns(2)
         with c1:
@@ -326,6 +340,8 @@ def _render_active_conversation(user, conv_db, generate_response, convo_list: li
             if st.button("Save title", key="companion_save_title"):
                 conv_db.rename_conversation(user, active_id, title_input.strip() or "New conversation")
                 st.rerun()
+
+    return active_id
 
 
 def _render_authenticated_suggestion_card(active_id: str, message_count: int) -> None:
