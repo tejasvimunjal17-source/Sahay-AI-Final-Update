@@ -354,7 +354,7 @@ def _render_panel() -> None:
         if not st.session_state["sahay_chat_history"]:
             render_suggestion_chips("sahay_chat_history", key_prefix="launcher", agent="navigator")
 
-        user_msg = st.chat_input("Message Sahay")
+        user_msg = st.chat_input("Message Sahay", key="sahay_launcher_chat_input")
         if user_msg:
             send_message("sahay_chat_history", user_msg, agent="navigator")
             st.rerun()
