@@ -21,10 +21,14 @@ PRIVACY / SAFETY (see PHASE6_PRE_IMPLEMENTATION_AUDIT.md §8, §6):
   functions — never the service-role client, never another user's data.
 - Bounded reporting window: 7, 14, or 30 days — NEVER "all time". No
   function in this module accepts or produces an unbounded export.
-- Conversations are summarized (title, date, message count) rather than
-  full transcripts included verbatim, keeping the report focused on
-  wellness reflection and reducing how much raw conversation content
-  leaves the app in a downloadable file.
+- UPDATED (report-upgrade task, explicitly requested): the report now
+  also carries the user's COMPLETE Companion conversation text for the
+  selected period (from the messages table, RLS-scoped, own rows only)
+  plus a SEPARATE chatbot-launcher section. The launcher never persists
+  to Supabase (see components/chatbot_launcher.py), so that section can
+  only contain the current browser session's turns, and only turns
+  stamped with the current user's id. The existing conversation summary
+  table is kept as-is.
 - Never includes: the system prompt, API keys, Supabase keys, or any
   chain-of-thought — none of those are ever fetched by this module in
   the first place (backend.conversations's functions don't expose them
@@ -73,7 +77,44 @@ class ReportData:
     energy_avg: float | None = None
     sleep_avg: float | None = None
     activities_completed: int = 0
+    # Full Companion transcripts: [{title, started, messages: [{ts, role, content}]}]
+    companion_transcripts: list[dict] = field(default_factory=list)
+    # Launcher chatbot turns (session-only): [{ts (str|None), role, content}]
+    chatbot_messages: list[dict] = field(default_factory=list)
+    chatbot_note: str = ""
     disclaimer: str = DISCLAIMER
+
+
+COMPANION_LABEL = "Sahay AI"
+CHATBOT_LABEL = "Sahay AI Chatbot"
+USER_LABEL = "User"
+
+CHATBOT_SESSION_NOTE = (
+    "The Sahay AI chatbot does not save its history to your account. This "
+    "section lists only the messages from your current browser session."
+)
+
+
+def _clean_text(value) -> str:
+    """Strip characters that no document format can carry (NUL / C0
+    control characters other than newline and tab) so one odd stored
+    message can't fail a whole export. Text is otherwise untouched."""
+    if value is None:
+        return ""
+    text = str(value).replace("\r\n", "\n").replace("\r", "\n")
+    return "".join(ch for ch in text if ch in "\n\t" or ord(ch) >= 32 and not (0x7F <= ord(ch) <= 0x9F))
+
+
+def format_timestamp(raw) -> str | None:
+    """Stored timestamps are UTC (Supabase timestamptz). Returns a
+    human-readable UTC string, or None when missing/unparseable - callers
+    print 'time not recorded' rather than inventing one."""
+    if not raw:
+        return None
+    try:
+        return _parse_ts(str(raw)).astimezone(timezone.utc).strftime("%d %b %Y, %H:%M UTC")
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def validate_period_days(period_days: int) -> int:
@@ -101,7 +142,76 @@ def _within_period(items: list[dict], field_name: str, cutoff: datetime) -> list
     return result
 
 
-def build_report_data(user: AuthUser, conv_db, period_days: int = DEFAULT_PERIOD_DAYS, display_name: str | None = None) -> ReportData:
+def _build_companion_transcripts(user: AuthUser, conv_db, conversations: list[dict], cutoff: datetime) -> list[dict]:
+    """Complete stored Companion messages inside the period, grouped by
+    conversation, chronological. Own rows only (RLS + user_id filter)."""
+    rows = conv_db.list_messages_since(user, cutoff.isoformat())
+    titles = {c.get("id"): (c.get("title") or "Untitled conversation") for c in conversations}
+    grouped: dict[str, list[dict]] = {}
+    for m in rows:
+        if m.get("role") not in ("user", "assistant"):
+            continue
+        grouped.setdefault(m.get("conversation_id"), []).append(m)
+    transcripts = []
+    for conv_id, msgs in grouped.items():
+        msgs.sort(key=lambda m: m.get("created_at") or "")
+        transcripts.append({
+            "title": titles.get(conv_id, "Untitled conversation"),
+            "started": format_timestamp(msgs[0].get("created_at")),
+            "_sort": msgs[0].get("created_at") or "",
+            "messages": [
+                {
+                    "ts": format_timestamp(m.get("created_at")),
+                    "role": USER_LABEL if m.get("role") == "user" else COMPANION_LABEL,
+                    "content": _clean_text(m.get("content")),
+                }
+                for m in msgs
+            ],
+        })
+    transcripts.sort(key=lambda t: t["_sort"])
+    for t in transcripts:
+        t.pop("_sort", None)
+    return transcripts
+
+
+def _shape_chatbot_history(history: list[dict] | None, owner_id: str | None, cutoff: datetime | None) -> list[dict]:
+    """Launcher-chatbot turns from THIS browser session. For a signed-in
+    user only turns stamped with that same user id are used - sign_out()
+    does not clear this session list, so without the stamp check a second
+    account signing in on the same browser session could see the first
+    account's chatbot turns. Turns without a stamp are excluded for a
+    signed-in report (fail closed). Timestamps come from the turn's own
+    'ts' field when present; older turns have none and are labelled as
+    such - never fabricated."""
+    shaped = []
+    for turn in history or []:
+        role = turn.get("role")
+        if role not in ("user", "assistant") or not turn.get("content"):
+            continue
+        if owner_id is not None and turn.get("uid") != owner_id:
+            continue
+        ts_raw = turn.get("ts")
+        if cutoff is not None and ts_raw:
+            try:
+                if _parse_ts(ts_raw) < cutoff:
+                    continue
+            except Exception:  # noqa: BLE001
+                pass
+        shaped.append({
+            "ts": format_timestamp(ts_raw),
+            "role": USER_LABEL if role == "user" else CHATBOT_LABEL,
+            "content": _clean_text(turn.get("content")),
+        })
+    return shaped
+
+
+def build_report_data(
+    user: AuthUser,
+    conv_db,
+    period_days: int = DEFAULT_PERIOD_DAYS,
+    display_name: str | None = None,
+    chatbot_history: list[dict] | None = None,
+) -> ReportData:
     """Fetches and shapes everything needed for a Wellness Reflection
     Report, bounded to the last `period_days` days. Raises ValueError for
     an out-of-range period. Never raises for "no data found" — returns a
@@ -152,7 +262,13 @@ def build_report_data(user: AuthUser, conv_db, period_days: int = DEFAULT_PERIOD
     all_activity_logs = conv_db.list_wellness_activity_logs(user, limit=500)
     activities_in_period = _within_period(all_activity_logs, "completed_at", cutoff)
 
-    has_any_data = bool(conversations_summary or mood_events_shaped or activities_in_period)
+    companion_transcripts = _build_companion_transcripts(user, conv_db, all_conversations, cutoff)
+    chatbot_messages = _shape_chatbot_history(chatbot_history, user.id, cutoff)
+
+    has_any_data = bool(
+        conversations_summary or mood_events_shaped or activities_in_period
+        or companion_transcripts or chatbot_messages
+    )
 
     return ReportData(
         generated_at=now.strftime("%d %B %Y, %H:%M UTC"),
@@ -168,10 +284,18 @@ def build_report_data(user: AuthUser, conv_db, period_days: int = DEFAULT_PERIOD
         energy_avg=_avg("energy"),
         sleep_avg=_avg("sleep"),
         activities_completed=len(activities_in_period),
+        companion_transcripts=companion_transcripts,
+        chatbot_messages=chatbot_messages,
+        chatbot_note=CHATBOT_SESSION_NOTE,
     )
 
 
-def build_demo_report_data(chat_history: list[dict], period_days: int = DEFAULT_PERIOD_DAYS) -> ReportData:
+def build_demo_report_data(
+    chat_history: list[dict],
+    period_days: int = DEFAULT_PERIOD_DAYS,
+    companion_history: list[dict] | None = None,
+    chatbot_history: list[dict] | None = None,
+) -> ReportData:
     """Demo Mode variant: builds a report from the CURRENT SESSION's
     in-memory chat history only — never touches Supabase, never persists
     anything. Per the approved Phase 6 decision: Demo Mode gets a small,
@@ -180,16 +304,29 @@ def build_demo_report_data(chat_history: list[dict], period_days: int = DEFAULT_
     Demo Mode never persists mood_events regardless of chat content."""
     now = datetime.now(timezone.utc)
     message_count = len([m for m in chat_history if m.get("role") in ("user", "assistant")])
+    demo_companion = []
+    if companion_history:
+        demo_msgs = [
+            {"ts": format_timestamp(t.get("ts")), "role": USER_LABEL if t.get("role") == "user" else COMPANION_LABEL,
+             "content": _clean_text(t.get("content"))}
+            for t in companion_history if t.get("role") in ("user", "assistant") and t.get("content")
+        ]
+        if demo_msgs:
+            demo_companion = [{"title": "Demo Mode conversation (sample)", "started": demo_msgs[0]["ts"], "messages": demo_msgs}]
+    demo_chatbot = _shape_chatbot_history(chatbot_history, None, None)
     return ReportData(
         generated_at=now.strftime("%d %B %Y, %H:%M UTC"),
         period_days=period_days,
         period_start="(Demo Mode — current session only)",
         period_end=now.strftime("%d %B %Y"),
         display_name=None,
-        has_any_data=message_count > 0,
+        has_any_data=message_count > 0 or bool(demo_chatbot),
         conversations_summary=[{"title": "Demo Mode conversation (sample)", "date": now.strftime("%Y-%m-%d"), "message_count": message_count}] if message_count else [],
         mood_events=[],
         mood_distribution={},
+        companion_transcripts=demo_companion,
+        chatbot_messages=demo_chatbot,
+        chatbot_note=CHATBOT_SESSION_NOTE,
         disclaimer=DISCLAIMER + (
             " This export is SAMPLE DATA from your current Demo Mode session only "
             "— it is not saved anywhere and does not represent a persisted wellness "
