@@ -46,6 +46,8 @@ untouched. Only render_chatbot_launcher()'s wrapper changed.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import streamlit as st
 
 from components.theme import sahay_icon_html, COLORS
@@ -218,8 +220,20 @@ def send_message(history_key: str, text: str, agent: str = "companion") -> None:
         current_user = get_current_user()
         user_id = current_user.id if current_user else None
 
+    # REPORT SUPPORT (additive only): stamp turns with a UTC timestamp and
+    # the owning user id so the Reports page can (a) show real message
+    # times and (b) never include another account's session turns. Both
+    # are read only via .get() elsewhere; _build_messages() in
+    # chatbot/response_generator.py only reads role/content, so the extra
+    # keys never reach the model.
+    _now_iso = datetime.now(timezone.utc).isoformat()
+    st.session_state[history_key][-1]["ts"] = _now_iso
+    st.session_state[history_key][-1]["uid"] = user_id
+
     result = generate_response(text, chat_history=history_before, language=language, user_id=user_id, agent=agent)
     st.session_state[history_key].append({
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "uid": user_id,
         "role": "assistant",
         "content": result["reply"],
         "mood": result.get("mood"),
