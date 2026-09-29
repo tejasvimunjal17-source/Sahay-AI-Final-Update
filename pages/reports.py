@@ -69,7 +69,9 @@ def _render_demo() -> None:
     )
 
     chat_history = st.session_state.get("sahay_fullpage_history", []) or st.session_state.get("sahay_chat_history", [])
-    data = build_demo_report_data(chat_history)
+    companion_history = st.session_state.get("sahay_fullpage_history", [])
+    chatbot_history = st.session_state.get("sahay_chat_history", [])
+    data = build_demo_report_data(chat_history, companion_history=companion_history, chatbot_history=chatbot_history)
 
     if not data.has_any_data:
         empty_state("📄", "Chat with Sahay first (on the Companion page) to have something to include in a sample export.")
@@ -102,9 +104,14 @@ def _render_authenticated(user) -> None:
     except Exception:  # noqa: BLE001 - a profile-fetch hiccup shouldn't block the report
         display_name = None
 
+    chatbot_history = st.session_state.get("sahay_chat_history", [])
+
     with st.spinner("Preparing your report..."):
         try:
-            data = build_report_data(user, conv_db, period_days=period_days, display_name=display_name)
+            data = build_report_data(
+                user, conv_db, period_days=period_days, display_name=display_name,
+                chatbot_history=chatbot_history,
+            )
         except Exception as exc:  # noqa: BLE001
             st.error("Couldn't prepare your report right now. Please try again.")
             st.caption(f"Technical detail (dev preview only): {exc}")
