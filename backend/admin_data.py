@@ -207,3 +207,111 @@ def get_configuration_status() -> dict:
         "openrouter_configured": OPENROUTER_CONFIG.is_configured,
         "google_oauth_configured": GOOGLE_OAUTH_CONFIG.is_configured,
     }
+
+
+# ---------------------------------------------------------------------------
+# PART 1 ADMIN UPGRADE (additive, read-only) — Dashboard overview + per-user
+# activity counts. Nothing above this line was changed. Every function here
+# selects only ids, counts, or timestamps — never `messages.content`,
+# `mood_events.note`/`mood`, or any other private text.
+# ---------------------------------------------------------------------------
+
+def _count_rows(client, table: str, *, since: str | None = None, since_column: str = "created_at",
+                user_id: str | None = None) -> int | None:
+    """Exact row count via PostgREST's count header (no row data transferred).
+    Returns None — never a fabricated 0 — if the count can't be read, so the
+    UI can show "—" instead of a misleading number."""
+    try:
+        query = client.table(table).select("id", count="exact")
+        if since is not None:
+            query = query.gte(since_column, since)
+        if user_id is not None:
+            query = query.eq("user_id", user_id)
+        result = query.limit(1).execute()
+        return result.count
+    except Exception:  # noqa: BLE001 - one unreadable table must not blank the whole dashboard
+        return None
+
+
+def _latest_timestamp(client, table: str, column: str, user_id: str) -> str | None:
+    try:
+        rows = (
+            client.table(table).select(column).eq("user_id", user_id)
+            .order(column, desc=True).limit(1).execute().data or []
+        )
+        return rows[0].get(column) if rows else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def get_dashboard_overview(admin: AdminUser, days: int = 30) -> dict:
+    """Extra Dashboard signals derived only from existing tables:
+    registrations (profiles), volume counts for messages / mood check-ins /
+    wellness activities / feedback / safety events, and the newest
+    registrations (display name + join date only — no email, no ids)."""
+    _require_admin(admin)
+    client = get_admin_client()
+    now = datetime.now(timezone.utc)
+    cutoff = (now - timedelta(days=days)).isoformat()
+
+    profiles = (
+        client.table("profiles")
+        .select("id, display_name, role, onboarding_complete, created_at")
+        .order("created_at", desc=True).execute().data or []
+    )
+    cutoff_7d = (now - timedelta(days=7)).isoformat()
+    day_labels = [(now - timedelta(days=i)).date().isoformat() for i in range(13, -1, -1)]
+    by_day = Counter((p.get("created_at") or "")[:10] for p in profiles)
+
+    return {
+        "window_days": days,
+        "total_users": len(profiles),
+        "admin_role_users": sum(1 for p in profiles if p.get("role") == "admin"),
+        "onboarded_users": sum(1 for p in profiles if p.get("onboarding_complete")),
+        "new_users_7d": sum(1 for p in profiles if (p.get("created_at") or "") >= cutoff_7d),
+        "new_users_in_window": sum(1 for p in profiles if (p.get("created_at") or "") >= cutoff),
+        # zero-days are real zeros (no profile was created that day)
+        "signups_last_14_days": {d: by_day.get(d, 0) for d in day_labels},
+        "recent_registrations": [
+            {"display_name": p.get("display_name") or "(no display name)",
+             "created_at": (p.get("created_at") or "")[:10]}
+            for p in profiles[:5]
+        ],
+        "totals": {
+            "messages": _count_rows(client, "messages"),
+            "mood_checkins_and_chat_moods": _count_rows(client, "mood_events"),
+            "wellness_activities_completed": _count_rows(client, "wellness_activity_logs", since_column="completed_at"),
+            "feedback": _count_rows(client, "feedback"),
+            "safety_events": _count_rows(client, "safety_events"),
+        },
+        "in_window": {
+            "messages": _count_rows(client, "messages", since=cutoff),
+            "mood_events": _count_rows(client, "mood_events", since=cutoff),
+            "wellness_activities_completed": _count_rows(client, "wellness_activity_logs", since=cutoff, since_column="completed_at"),
+            "feedback": _count_rows(client, "feedback", since=cutoff),
+            "safety_events": _count_rows(client, "safety_events", since=cutoff),
+        },
+    }
+
+
+def get_user_activity_summary(admin: AdminUser, target_user_id: str) -> dict:
+    """Engagement COUNTS + last-activity timestamp for one profile.
+    Deliberately excludes: message/conversation text, mood values, and
+    per-user safety-event data (safety monitoring stays aggregate-only)."""
+    _require_admin(admin)
+    client = get_admin_client()
+    stamps = [
+        _latest_timestamp(client, "conversations", "updated_at", target_user_id),
+        _latest_timestamp(client, "messages", "created_at", target_user_id),
+        _latest_timestamp(client, "mood_events", "created_at", target_user_id),
+        _latest_timestamp(client, "wellness_activity_logs", "completed_at", target_user_id),
+    ]
+    stamps = [s for s in stamps if s]
+    return {
+        "conversations": _count_rows(client, "conversations", user_id=target_user_id),
+        "messages": _count_rows(client, "messages", user_id=target_user_id),
+        "mood_checkins": _count_rows(client, "mood_events", user_id=target_user_id),
+        "wellness_activities": _count_rows(client, "wellness_activity_logs", user_id=target_user_id),
+        "feedback_submitted": _count_rows(client, "feedback", user_id=target_user_id),
+        "last_activity": max(stamps) if stamps else None,
+    }
