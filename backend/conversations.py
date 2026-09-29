@@ -101,6 +101,41 @@ def list_messages(user: AuthUser, conversation_id: str) -> list[dict]:
     return resp.data or []
 
 
+def list_messages_since(
+    user: AuthUser,
+    since_iso: str,
+    role: str | None = None,
+    columns: str = "*",
+    page_size: int = 1000,
+    max_rows: int = 20000,
+) -> list[dict]:
+    """All of THIS user's messages (across every conversation) created at
+    or after `since_iso`, oldest first. Same RLS-scoped client and the same
+    `.eq("user_id", user.id)` belt-and-suspenders filter as list_messages.
+    Paged with .range() because PostgREST caps a single response (default
+    1000 rows) - a single unpaged call would silently truncate a long
+    conversation history. `max_rows` is a hard safety ceiling only."""
+    client = get_client_for_current_user()
+    rows: list[dict] = []
+    start = 0
+    while start < max_rows:
+        query = (
+            client.table("messages")
+            .select(columns)
+            .eq("user_id", user.id)
+            .gte("created_at", since_iso)
+        )
+        if role is not None:
+            query = query.eq("role", role)
+        resp = query.order("created_at").range(start, start + page_size - 1).execute()
+        batch = resp.data or []
+        rows.extend(batch)
+        if len(batch) < page_size:
+            break
+        start += page_size
+    return rows
+
+
 def add_message(user: AuthUser, conversation_id: str, role: str, content: str) -> dict:
     if role not in VALID_MESSAGE_ROLES:
         raise ValueError(f"Invalid message role: {role!r} (must be 'user' or 'assistant')")
