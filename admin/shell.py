@@ -15,10 +15,12 @@ styles in admin/theme.py — the student sidebar in components/sidebar.py
 is not touched). `admin_active_section` is the same session key as
 before. The five sections that already had views (Dashboard, Users,
 Feedback, Safety Events, System) still call the same admin/views.py
-functions, unchanged. The other five requested tabs (Database,
-Announcements, Notifications, Analytics, Export) have NO backend in this
-codebase, so they show an honest "not available yet" panel — no fake
-data, no fake features.
+functions, unchanged. Database now has a read-only view
+(views.render_database). The remaining tabs (Announcements,
+Notifications, Analytics, Export) have NO backend in this codebase, so
+they show an honest "not available yet" panel — no fake data, no fake
+features. Announcements/Notifications are blocked on a schema that has
+not been created or approved (they need new tables).
 """
 
 from __future__ import annotations
@@ -57,13 +59,14 @@ SECTIONS = [label for _, items in NAV_GROUPS for label, _ in items]
 # Tabs with no implementation behind them in this codebase. Text states
 # only what is true of this build.
 _NOT_AVAILABLE: dict[str, str] = {
-    "Database": (
-        "A table explorer isn't part of this Sahay AI build. The admin panel currently shows "
-        "aggregate usage, user profile summaries, feedback, and safety-event counts — "
-        "never student conversations."
+    "Announcements": (
+        "Announcements aren't available yet: saving and publishing them needs a new database table "
+        "that hasn't been created. Nothing is stored or sent from this tab."
     ),
-    "Announcements": "Announcements aren't implemented in this Sahay AI build yet.",
-    "Notifications": "Notifications aren't implemented in this Sahay AI build yet.",
+    "Notifications": (
+        "Notifications aren't available yet: storing them and tracking read/unread state needs new "
+        "database tables that haven't been created. Nothing is stored or sent from this tab."
+    ),
     "Export": "Admin data export isn't implemented in this Sahay AI build yet.",
 }
 
@@ -179,5 +182,7 @@ def render(admin: AdminUser) -> None:
         views.render_safety(admin)
     elif section == "System":
         views.render_system(admin)
+    elif section == "Database":
+        views.render_database(admin)
     else:
         _render_not_available(section)
