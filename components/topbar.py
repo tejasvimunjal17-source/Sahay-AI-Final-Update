@@ -53,6 +53,13 @@ All three are read-only, best-effort (wrapped so a Supabase hiccup
 degrades to an empty/neutral state rather than crashing the page — the
 topbar is chrome, not critical navigation) and never touch
 authentication, RLS, or session-state contracts beyond reading them.
+
+LAYOUT UPDATE (My Profile task): the streak pill now sits at the
+TOP-RIGHT (per the final layout spec), opening the same popover on every
+page. The bell and profile chip were removed from this bar — the
+notification panel and the user's name/email now live in the sidebar
+(components/sidebar.py), so identity is not repeated beside every page
+title. Streak data/logic (backend/streak.py) is untouched.
 """
 
 from __future__ import annotations
@@ -77,26 +84,6 @@ def _current_user():
         return None
 
 
-def _profile_display_name(user) -> str | None:
-    """Real display name from the user's own `profiles` row (the same
-    source pages/profile.py reads/edits), falling back to their email's
-    local part, or None if neither is available. Never hardcoded, never
-    fabricated."""
-    if user is None:
-        return None
-    try:
-        from backend import auth
-        profile = auth.get_profile(user)
-    except Exception:  # noqa: BLE001
-        profile = None
-    name = (profile or {}).get("display_name")
-    if name:
-        return name
-    if user.email:
-        return user.email.split("@", 1)[0]
-    return None
-
-
 def _user_streak(user):
     """Reuses backend.streak.get_user_streak() exactly as before —
     real activity only, no new logic. None for a signed-out viewer."""
@@ -116,27 +103,6 @@ def _render_streak_pill(streak) -> None:
         render_streak_popover_content(streak)
 
 
-def _render_notification_bell() -> None:
-    with st.popover("🔔", use_container_width=True):
-        st.markdown("**Notifications**")
-        st.caption(
-            "No notifications yet. Live announcements from Sahay AI aren't enabled "
-            "in this build yet — this panel is ready for them."
-        )
-
-
-def _render_profile_chip(user, display_name: str | None) -> None:
-    icon_label = "👤" if not display_name else f"👤 {display_name.split()[0]}"
-    with st.popover(icon_label, use_container_width=True):
-        if user is None:
-            st.markdown("**Not signed in**")
-            st.caption("You're browsing Sahay AI in Demo Mode.")
-        else:
-            st.markdown(f"**{display_name or 'Signed in'}**")
-            st.caption(user.email or "")
-            st.caption("Manage your name and language in Profile · Sign out from the sidebar.")
-
-
 _TOPBAR_CSS = """
 <style>
 div[class*="st-key-sahay_topbar"] {
@@ -153,30 +119,43 @@ div[class*="st-key-sahay_topbar"] button[kind="secondary"] {
     font-size: 13px !important;
     min-height: 0 !important;
 }
+/* Mobile: keep the page title and the top-right streak on ONE row
+   instead of letting Streamlit stack the columns. */
+@media (max-width: 640px) {
+    div[class*="st-key-sahay_topbar"] div[data-testid="stHorizontalBlock"] {
+        flex-wrap: nowrap !important;
+        gap: 0.5rem !important;
+    }
+    div[class*="st-key-sahay_topbar"] div[data-testid="stColumn"],
+    div[class*="st-key-sahay_topbar"] div[data-testid="column"] {
+        min-width: 0 !important;
+        width: auto !important;
+    }
+    div[class*="st-key-sahay_topbar"] div[data-testid="stColumn"]:first-child,
+    div[class*="st-key-sahay_topbar"] div[data-testid="column"]:first-child {
+        flex: 1 1 0 !important;
+    }
+    div[class*="st-key-sahay_topbar"] div[data-testid="stColumn"]:last-child,
+    div[class*="st-key-sahay_topbar"] div[data-testid="column"]:last-child {
+        flex: 0 0 auto !important;
+    }
+}
 </style>
 """
 
 
 def render_topbar(page_title: str) -> None:
     user = _current_user()
-    display_name = _profile_display_name(user)
     streak = _user_streak(user)
 
     dark = st.session_state.get("sahay_dark_mode", True)
     muted = COLORS["muted_dark"] if dark else COLORS["muted_light"]
 
     with st.container(key="sahay_topbar"):
-        # Streak pill is the FIRST (leftmost) column — top-left placement,
-        # confirmed authoritative over the LearnMate screenshots' top-right
-        # example (see module docstring). Title sits to its right; the
-        # bell/profile cluster is pushed to the far right by the spacer.
-        streak_col, title_col, spacer_col, bell_col, profile_col = st.columns(
-            [0.9, 3.6, 1.0, 0.7, 1.5]
-        )
-
-        with streak_col:
-            st.markdown("<div style='padding-top:2px;'></div>", unsafe_allow_html=True)
-            _render_streak_pill(streak)
+        # Page title on the left, the global streak trigger at the far
+        # right. The same popover shows on every page. User identity and
+        # notifications live in the sidebar, not here.
+        title_col, streak_col = st.columns([4, 1.2])
 
         with title_col:
             st.markdown(
@@ -193,11 +172,8 @@ def render_topbar(page_title: str) -> None:
                 unsafe_allow_html=True,
             )
 
-        with bell_col:
+        with streak_col:
             st.markdown("<div style='padding-top:2px;'></div>", unsafe_allow_html=True)
-            _render_notification_bell()
-        with profile_col:
-            st.markdown("<div style='padding-top:2px;'></div>", unsafe_allow_html=True)
-            _render_profile_chip(user, display_name)
+            _render_streak_pill(streak)
 
     st.markdown(_TOPBAR_CSS, unsafe_allow_html=True)
