@@ -230,6 +230,107 @@ def render_users(admin: AdminUser) -> None:
     b2.metric("Feedback submitted", _fmt_count(summary["feedback_submitted"]))
 
 
+_DB_STATUS_LABEL = {
+    "ok": "✅ OK",
+    "missing": "⚠️ Table not found",
+    "denied": "🔒 Permission denied",
+    "error": "❌ Query failed",
+}
+
+
+def render_database(admin: AdminUser) -> None:
+    """Read-only database overview. Fixed table registry, safe columns only,
+    no SQL input of any kind (see backend/admin_data.DB_TABLE_REGISTRY)."""
+    from backend import admin_data
+    import pandas as pd
+
+    st.markdown("### Database")
+    st.caption(
+        "Read-only overview of Sahay's Supabase tables. Private content (chats, mood, credentials) "
+        "is shown as counts only."
+    )
+    if st.button("Refresh", key="admin_db_refresh"):
+        st.rerun()
+
+    try:
+        with st.spinner("Reading table status…"):
+            overview = admin_data.get_database_overview(admin)
+    except Exception as exc:  # noqa: BLE001
+        st.error("Couldn't read the database overview right now.")
+        st.caption(f"Technical detail (dev preview only): {exc}")
+        return
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Tables tracked", overview["table_count"])
+    m2.metric("Reachable", overview["reachable"])
+    m3.metric("Total rows", f"{overview['total_rows']:,}")
+    m4.metric("Problems", len(overview["problems"]))
+
+    if overview["problems"]:
+        st.warning(
+            "Some tables couldn't be read: " + ", ".join(overview["problems"])
+            + ". A missing table usually means a migration hasn't been applied to this Supabase project."
+        )
+    elif overview["total_rows"] == 0:
+        st.info("All tables are reachable but contain no rows yet.")
+
+    categories = sorted({t["category"] for t in overview["tables"]})
+    category = st.selectbox("Category", ["All", *categories], key="admin_db_category")
+    shown = [t for t in overview["tables"] if category == "All" or t["category"] == category]
+
+    frame = pd.DataFrame([
+        {
+            "Table": t["table"],
+            "Category": t["category"],
+            "Rows": t["rows"] if t["rows"] is not None else None,
+            "Latest write (UTC)": (t["latest"] or "")[:16].replace("T", " ") or "—",
+            "Access": t["access"],
+            "Records viewable": "Yes" if t["previewable"] else "Count only",
+            "Status": _DB_STATUS_LABEL.get(t["status"], t["status"]),
+        }
+        for t in shown
+    ])
+    st.dataframe(frame, hide_index=True, use_container_width=True)
+
+    # --- Table details + safe record preview ---
+    st.markdown("---")
+    st.markdown("##### Table details")
+    names = [t["table"] for t in shown]
+    chosen = st.selectbox("Select a table", names, key="admin_db_table")
+    info = next(t for t in shown if t["table"] == chosen)
+    st.write(info["purpose"])
+    st.caption(f"Access model: {info['access']}")
+
+    if info["status"] != "ok":
+        st.warning(f"{_DB_STATUS_LABEL[info['status']]} — records can't be shown for this table.")
+        return
+    if not info["previewable"]:
+        st.info(info["restricted_reason"] or "Records for this table are not shown in the admin panel.")
+        return
+    if not info["rows"]:
+        st.info("This table has no rows yet.")
+        return
+    if info["restricted_reason"]:
+        st.caption(info["restricted_reason"])
+
+    page_size = 25
+    pages = max(1, -(-info["rows"] // page_size))
+    page = 1
+    if pages > 1:
+        page = int(st.number_input("Page", min_value=1, max_value=pages, value=1, step=1, key="admin_db_page"))
+    try:
+        preview = admin_data.get_table_preview(admin, chosen, page=page, page_size=page_size)
+    except Exception as exc:  # noqa: BLE001
+        st.error("Couldn't load these records right now.")
+        st.caption(f"Technical detail (dev preview only): {exc}")
+        return
+    st.caption(
+        f"Newest first · {preview['total']:,} row(s) · page {page} of {pages} · "
+        f"columns shown: {', '.join(preview['columns'])}. Student IDs are never shown."
+    )
+    st.dataframe(pd.DataFrame(preview["rows"], columns=preview["columns"]), hide_index=True, use_container_width=True)
+
+
 def render_feedback(admin: AdminUser) -> None:
     from backend import admin_data
     st.markdown("### Feedback Management")
