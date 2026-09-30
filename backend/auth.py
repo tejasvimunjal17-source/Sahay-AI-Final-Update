@@ -54,6 +54,8 @@ SESSION_KEY = "sahay_supabase_session"  # {"access_token", "refresh_token"}
 # --- Google OAuth / PKCE carry-over (see module docstring) ---------------
 _PKCE_COOKIE = "sahay_pkce_verifier"
 _PKCE_COOKIE_MAX_AGE = 900          # seconds; Supabase flow state itself is short-lived
+_PKCE_LS_KEY = "sahay_pkce_verifier"  # localStorage twin of the cookie (see _emit_pkce_cookie)
+_PKCE_BRIDGE_PARAM = "sahay_v"        # one-hop hand-off of the verifier from browser -> server
 _OAUTH_ATTEMPT_KEY = "sahay_oauth_attempt"   # {"url", "verifier", "created"} per Streamlit session
 _OAUTH_ATTEMPT_REUSE_SECONDS = 240  # reuse one sign-in URL/verifier across reruns
 _VERIFIER_RE = re.compile(r"^[A-Za-z0-9\-._~=+/]{32,256}$")
@@ -265,15 +267,23 @@ def _new_pkce_client(storage: _PkceStorage):
 
 
 def _emit_pkce_cookie(verifier: str) -> None:
-    """Writes the verifier into a short-lived browser cookie so it survives
-    the redirect to Google and back. Streamlit has no server-side
-    Set-Cookie, so this runs a tiny script in the browser. The value is
-    validated and percent-encoded before being placed in the script."""
+    """Stores the verifier in the BROWSER so it survives the redirect to
+    Google and back. Two copies are written: a short-lived cookie (works
+    wherever the host forwards cookies to Streamlit) and a localStorage
+    entry. On Streamlit Community Cloud, browser cookies frequently never
+    reach st.context.cookies, so the callback falls back to localStorage
+    (see _bridge_verifier_from_browser). Both stay bound to THIS browser,
+    which is what PKCE needs. The value is validated and percent-encoded
+    before being placed in the script."""
     if not _VERIFIER_RE.match(verifier):
         raise AuthError("Google Sign-In couldn't be started. Please try again.")
     value = quote(verifier, safe="")
     js = (
-        "<script>(function(){try{"
+        "<script>(function(){"
+        "try{"
+        f"window.localStorage.setItem('{_PKCE_LS_KEY}',JSON.stringify({{v:'{verifier}',t:Date.now()}}));"
+        "}catch(e){}"
+        "try{"
         "var d=document;"
         "try{if(window.parent&&window.parent!==window&&window.parent.document){d=window.parent.document;}}catch(e){}"
         "var sec=(d.location.protocol==='https:')?'; Secure':'';"
@@ -284,6 +294,40 @@ def _emit_pkce_cookie(verifier: str) -> None:
         st.html(js, unsafe_allow_javascript=True)  # Streamlit >= 1.52
     except TypeError:
         import streamlit.components.v1 as components  # older Streamlit
+        components.html(js, height=0)
+
+
+def _bridge_verifier_from_browser() -> None:
+    """Runs only when a Google callback (?code=...) arrives and the server
+    did NOT receive the verifier cookie. Reads the verifier back out of this
+    browser's localStorage and reloads the page ONCE with it attached as a
+    query param (_PKCE_BRIDGE_PARAM); complete_oauth_from_query_params() then
+    consumes and clears it. If localStorage has nothing usable, the reload
+    carries the value 'missing' so the user sees the normal friendly error
+    instead of a loop. Never reached when the param is already present."""
+    js = (
+        "<script>(function(){"
+        "var v='missing';"
+        "try{"
+        f"var raw=window.localStorage.getItem('{_PKCE_LS_KEY}');"
+        "if(raw){var o=JSON.parse(raw);"
+        "if(o&&typeof o.v==='string'&&/^[A-Za-z0-9\\-._~=+\\/]{32,256}$/.test(o.v)&&(Date.now()-o.t)<"
+        f"{_PKCE_COOKIE_MAX_AGE * 1000}"
+        "){v=o.v;}}"
+        f"window.localStorage.removeItem('{_PKCE_LS_KEY}');"
+        "}catch(e){}"
+        "var w=window;"
+        "try{if(window.top&&window.top.location&&window.top.location.href){w=window.top;}}catch(e){w=window;}"
+        "try{var u=new URL(w.location.href);"
+        f"u.searchParams.set('{_PKCE_BRIDGE_PARAM}',v);"
+        "w.location.replace(u.toString());}catch(e){}"
+        "})();</script>"
+    )
+    st.caption("Completing sign-in…")
+    try:
+        st.html(js, unsafe_allow_javascript=True)
+    except TypeError:
+        import streamlit.components.v1 as components
         components.html(js, height=0)
 
 
@@ -351,10 +395,20 @@ def complete_oauth_from_query_params() -> AuthUser | None:
     if not code:
         return None
 
+    # Preferred source: the browser cookie. Fallback (Streamlit Community
+    # Cloud often drops it): the localStorage bridge param, see above.
+    verifier = _read_pkce_cookie()
+    bridged = params.get(_PKCE_BRIDGE_PARAM)
+    if not verifier and bridged is None:
+        logger.info("OAuth callback: no verifier cookie; bridging from browser localStorage")
+        _bridge_verifier_from_browser()
+        st.stop()  # query params stay intact for the reloaded request
+    if not verifier and bridged and _VERIFIER_RE.match(bridged):
+        verifier = bridged
+
     try:
-        verifier = _read_pkce_cookie()
         if not verifier:
-            logger.error("OAuth callback received but no PKCE verifier cookie was sent by the browser")
+            logger.error("OAuth callback received but no PKCE verifier (cookie or localStorage) was available")
             raise AuthError(_OAUTH_FAILED_MSG)
 
         try:
