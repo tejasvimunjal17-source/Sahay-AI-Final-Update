@@ -315,3 +315,140 @@ def get_user_activity_summary(admin: AdminUser, target_user_id: str) -> dict:
         "feedback_submitted": _count_rows(client, "feedback", user_id=target_user_id),
         "last_activity": max(stamps) if stamps else None,
     }
+
+
+# ---------------------------------------------------------------------------
+# PART 2 ADMIN UPGRADE (additive, read-only) — Database overview.
+# Nothing above this line was changed. The registry below is a FIXED,
+# hand-written allow-list mirroring database/migrations/*.sql. No table or
+# column name ever comes from user input, so this cannot become a generic
+# query tool. Tables holding private text or credentials are count-only.
+# ---------------------------------------------------------------------------
+
+# name -> (category, purpose, access, timestamp column, preview columns | None)
+# preview columns None  => metadata/counts only, raw records are never shown.
+# `user_id` is deliberately absent from every preview so rows can't be tied
+# to a student, and private text (message content, mood values/notes,
+# feedback text) is never selected.
+DB_TABLE_REGISTRY: dict[str, dict] = {
+    "profiles": {
+        "category": "Accounts", "timestamp": "created_at",
+        "purpose": "One row per student/admin-role account: display name, language, role, onboarding flag.",
+        "access": "User RLS (own row) + service-role for admin views",
+        "preview": ["display_name", "role", "preferred_language", "onboarding_complete", "created_at", "updated_at"],
+    },
+    "admin_users": {
+        "category": "Accounts", "timestamp": "created_at",
+        "purpose": "Separate admin-panel login accounts.",
+        "access": "Service-role only (no anon/authenticated policy)",
+        "preview": None, "restricted_reason": "Contains credential material — count only.",
+    },
+    "conversations": {
+        "category": "Chat", "timestamp": "created_at",
+        "purpose": "Conversation containers (title + owner) for the AI chat.",
+        "access": "User RLS (own rows)",
+        "preview": None, "restricted_reason": "Private student content — count only.",
+    },
+    "messages": {
+        "category": "Chat", "timestamp": "created_at",
+        "purpose": "Individual chat messages.",
+        "access": "User RLS (own rows); immutable",
+        "preview": None, "restricted_reason": "Private student conversations — count only.",
+    },
+    "mood_events": {
+        "category": "Wellbeing", "timestamp": "created_at",
+        "purpose": "Mood signals from chat and check-ins.",
+        "access": "User RLS (own rows)",
+        "preview": None, "restricted_reason": "Sensitive wellbeing data — count only (aggregates live on the Dashboard).",
+    },
+    "wellness_activity_logs": {
+        "category": "Wellbeing", "timestamp": "completed_at",
+        "purpose": "Completed wellness activities (breathing, grounding, etc.).",
+        "access": "User RLS (own rows)",
+        "preview": ["activity_key", "completed_at"],
+    },
+    "feedback": {
+        "category": "Feedback", "timestamp": "created_at",
+        "purpose": "Student ratings and comments.",
+        "access": "User RLS (own rows) + service-role for admin summary",
+        "preview": ["rating", "created_at"],
+        "restricted_reason": "Comment text is shown on the Feedback tab, not here.",
+    },
+    "safety_events": {
+        "category": "Safety", "timestamp": "created_at",
+        "purpose": "Which deterministic safety rule fired (category + crisis/block). No message content.",
+        "access": "Service-role only",
+        "preview": ["category", "action", "created_at"],
+    },
+    "audit_logs": {
+        "category": "Security", "timestamp": "created_at",
+        "purpose": "Auth/admin security event trail.",
+        "access": "Service-role only",
+        "preview": ["actor_type", "action", "created_at"],
+    },
+}
+
+DB_PREVIEW_PAGE_SIZE_MAX = 50
+
+
+def _classify_db_error(exc: Exception) -> str:
+    text = str(exc).lower()
+    if "42501" in text or "permission denied" in text or "not allowed" in text:
+        return "denied"
+    if ("pgrst205" in text or "42p01" in text or "does not exist" in text
+            or "could not find the table" in text):
+        return "missing"
+    return "error"
+
+
+def get_database_overview(admin: AdminUser) -> dict:
+    """Per-table row count, newest-write timestamp and status for every
+    table in DB_TABLE_REGISTRY. Never raises for a single bad table."""
+    _require_admin(admin)
+    client = get_admin_client()
+    tables = []
+    for name, meta in DB_TABLE_REGISTRY.items():
+        row = {
+            "table": name, "category": meta["category"], "purpose": meta["purpose"],
+            "access": meta["access"], "previewable": meta["preview"] is not None,
+            "restricted_reason": meta.get("restricted_reason"),
+            "rows": None, "latest": None, "status": "ok",
+        }
+        try:
+            result = client.table(name).select("id", count="exact").limit(1).execute()
+            row["rows"] = result.count
+            if result.count:
+                col = meta["timestamp"]
+                newest = client.table(name).select(col).order(col, desc=True).limit(1).execute().data or []
+                row["latest"] = newest[0].get(col) if newest else None
+        except Exception as exc:  # noqa: BLE001
+            row["status"] = _classify_db_error(exc)
+        tables.append(row)
+    ok = [t for t in tables if t["status"] == "ok"]
+    return {
+        "tables": tables,
+        "table_count": len(tables),
+        "reachable": len(ok),
+        "total_rows": sum(t["rows"] or 0 for t in ok),
+        "problems": [t["table"] for t in tables if t["status"] != "ok"],
+    }
+
+
+def get_table_preview(admin: AdminUser, table: str, page: int = 1, page_size: int = 25) -> dict:
+    """Newest-first, read-only page of SAFE columns for an allow-listed table.
+    Raises ValueError for any table that is not previewable."""
+    _require_admin(admin)
+    meta = DB_TABLE_REGISTRY.get(table)
+    if meta is None or not meta["preview"]:
+        raise ValueError("This table is not available for record preview.")
+    page = max(1, int(page))
+    page_size = max(1, min(int(page_size), DB_PREVIEW_PAGE_SIZE_MAX))
+    start = (page - 1) * page_size
+    cols = meta["preview"]
+    client = get_admin_client()
+    result = (
+        client.table(table).select(", ".join(cols), count="exact")
+        .order(meta["timestamp"], desc=True).range(start, start + page_size - 1).execute()
+    )
+    return {"table": table, "columns": cols, "rows": result.data or [],
+            "total": result.count, "page": page, "page_size": page_size}
