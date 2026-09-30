@@ -1,6 +1,11 @@
 """
 components/topbar.py
 ---------------------
+STREAK UPDATE: the top-right streak is now the LearnMate-style "🔥 N" pill
+that opens a "Learning Streak" dialog (components/streak_widget.py:
+render_streak_control) instead of a popover. Same single global position,
+same real data (backend/streak.py, unchanged).
+
 Top utility bar + page header for the authenticated Sahay AI dashboard.
 
 PHASE 4: restyled into an elevated "page header" card — date/utility row
@@ -69,7 +74,7 @@ from datetime import datetime
 import streamlit as st
 
 from components.theme import COLORS
-from components.streak_widget import render_streak_popover_content
+from components.streak_widget import render_streak_control
 
 
 def _current_user():
@@ -95,12 +100,6 @@ def _user_streak(user):
         return get_user_streak(user, conv_db)
     except Exception:  # noqa: BLE001
         return None
-
-
-def _render_streak_pill(streak) -> None:
-    label = f"🔥 {streak.current_streak}" if streak is not None else "🔥 –"
-    with st.popover(label, use_container_width=True):
-        render_streak_popover_content(streak)
 
 
 _TOPBAR_CSS = """
@@ -174,6 +173,6 @@ def render_topbar(page_title: str) -> None:
 
         with streak_col:
             st.markdown("<div style='padding-top:2px;'></div>", unsafe_allow_html=True)
-            _render_streak_pill(streak)
+            render_streak_control(streak)
 
     st.markdown(_TOPBAR_CSS, unsafe_allow_html=True)
