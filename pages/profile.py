@@ -1,50 +1,66 @@
-"""pages/profile.py — PHASE 2: reads/updates the real `profiles` row for a
-signed-in user via the anon-key client (RLS-scoped to auth.uid()). In
-Demo Mode (no real session), falls back to Phase 1's disabled placeholder
-fields — Demo Mode never reads or writes Supabase.
+"""pages/profile.py — "My Profile": header card, real account stats, quick
+links, edit form, and account actions.
 
-PHASE 6F: header swapped to components.page_components.render_page_header
-(no description added — none existed before). No widget keys exist on
-this page (the text_input/selectbox/form/form_submit_button all use
-Streamlit's default auto-generated keys, both before and after), so
-there was nothing to preserve there beyond confirming that fact. The
-Demo Mode disabled-placeholder branch, the auth/profile-fetch branch,
-the profile form, and the exact `client.table("profiles").update(...)
-.eq("id", user.id).execute()` call and its two fields are all
-byte-identical to before.
+DATA RULES (unchanged from earlier phases):
+- Signed-in users only ever see their OWN `profiles` row, read/updated via
+  the anon-key, RLS-scoped client (backend.auth). No internal IDs, tokens
+  or service-role data are displayed.
+- Demo Mode (no real session) never calls Supabase: it shows an honest
+  "no account" card plus the same disabled placeholder fields as before.
+- Every statistic comes from data Sahay already stores (conversations,
+  mood_events, wellness_activity_logs, profiles.created_at). A failed
+  fetch shows "—", never 0. Counts that hit the fetch limit show "N+".
+- The streak reuses backend.streak.get_user_streak() — the same
+  implementation the global top-right streak popover uses. There is no
+  second streak implementation here.
 
-USER-DASHBOARD UPGRADE (this task, Part 2): reproduces the parts of
-LearnMate AI's "My Profile" tab that have a genuine Sahay AI data
-source, ADDED above the untouched form (nothing below this comment
-block touches the Demo Mode branch, the fetch branch, or the form
-logic above — see _render_profile_overview/_render_activity_links,
-called once each, right before the existing `st.caption(f"Signed in
-as {user.email}")` line):
-- A profile header card (display name + email — the same source the
-  form already edits) and three real stat chips: "Member since"
-  (profiles.created_at, already stored, never surfaced before),
-  "Current streak" (reuses backend.streak.get_user_streak() exactly as
-  components/topbar.py does — no second streak implementation), and
-  "Conversations" (a live count via the same
-  backend.conversations.list_conversations() pages/conversations.py
-  already calls).
-- A "Your activity" row of buttons to Conversations / Mood History /
-  Reports, using the same `st.session_state["sahay_page"] = <key>;
-  st.rerun()` navigation pattern pages/overview.py's own "Open Sahay
-  Companion" button already uses. This intentionally links to Sahay's
-  existing dedicated history pages instead of rebuilding a duplicate
-  history viewer inside Profile.
-No new table; every figure is read from data this codebase already
-stores. Any individual fetch that fails degrades to "—", never a
-fabricated number, and never blocks the rest of the page.
+PROFILE UPGRADE: adds email/account display, "Mood check-ins" and
+"Wellness activities" stats, quick links to existing pages, a Log out
+action (same logic as the sidebar's), HTML-escaping of user-controlled
+text, and a refresh after saving so the sidebar name updates at once.
+The `profiles` update call and its two fields are unchanged. No new
+tables, columns, or migrations.
 """
 
 from __future__ import annotations
 
+import html
+
 import streamlit as st
 
 from components.page_components.page_header import render_page_header
+from components.page_components.section_header import render_section_header
+from components.sidebar import ALL_PAGE_KEYS
 from backend import auth
+
+_FETCH_LIMIT = 500  # same cap backend.streak uses for mood/activity reads
+_SAVED_FLASH_KEY = "_sahay_profile_saved"
+
+_QUICK_LINKS = [
+    ("💬 Sahay Companion", "companion"),
+    ("📈 Mood History", "mood_history"),
+    ("🗂️ Conversations", "conversations"),
+    ("📊 Wellness Dashboard", "wellness_dashboard"),
+    ("📄 Reports", "reports"),
+    ("🇮🇳 Government Services", "government_services"),
+    ("🔒 Privacy", "privacy"),
+    ("⚙️ Settings", "settings"),
+]
+
+_LANG_LABELS = {"en": "English", "hi": "Hindi", "hinglish": "Hinglish"}
+
+_PROFILE_CSS = """
+<style>
+.sahay-profile-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin:0 0 16px 0;}
+.sahay-profile-stats .sahay-card{margin:0;padding:16px 18px;min-width:0;}
+.sahay-profile-stats .sahay-card-metric{font-size:22px;overflow-wrap:anywhere;}
+.sahay-profile-header p,.sahay-profile-header div{overflow-wrap:anywhere;}
+</style>
+"""
+
+
+def _esc(value) -> str:
+    return html.escape(str(value or ""), quote=True)
 
 
 def _format_member_since(raw) -> str | None:
@@ -57,65 +73,101 @@ def _format_member_since(raw) -> str | None:
         return None
 
 
-def _render_profile_overview(user, profile: dict) -> None:
-    display_name = profile.get("display_name") or user.email or "Sahay AI user"
+def _capped(count: int, limit: int) -> str:
+    return f"{limit}+" if count >= limit else str(count)
 
-    conversation_count = "—"
+
+def _load_stats(user) -> dict[str, str]:
+    """Each figure is fetched independently; any failure leaves that one
+    figure as "—" without affecting the others or the rest of the page."""
+    stats = {"streak": "—", "conversations": "—", "checkins": "—", "activities": "—"}
     try:
         from backend import conversations as conv_db
-        conversation_count = str(len(conv_db.list_conversations(user)))
+    except Exception:  # noqa: BLE001
+        return stats
+
+    try:
+        stats["conversations"] = str(len(conv_db.list_conversations(user)))
     except Exception:  # noqa: BLE001
         pass
-
-    streak_label = "—"
     try:
-        from backend import conversations as conv_db
+        moods = conv_db.list_mood_events(user, limit=_FETCH_LIMIT)
+        checkins = sum(1 for m in moods if m.get("source") == "checkin")
+        # If the fetch hit its cap, the true count may be higher.
+        stats["checkins"] = _capped(checkins, _FETCH_LIMIT) if len(moods) >= _FETCH_LIMIT else str(checkins)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        logs = conv_db.list_wellness_activity_logs(user, limit=_FETCH_LIMIT)
+        stats["activities"] = _capped(len(logs), _FETCH_LIMIT)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
         from backend.streak import get_user_streak
-        streak_label = str(get_user_streak(user, conv_db).current_streak)
+        stats["streak"] = str(get_user_streak(user, conv_db).current_streak)
     except Exception:  # noqa: BLE001
         pass
+    return stats
 
-    member_since = _format_member_since(profile.get("created_at")) or "—"
 
+def _render_header_card(user, profile: dict) -> None:
+    display_name = profile.get("display_name") or (user.email or "").split("@", 1)[0] or "Sahay AI user"
+    lang = _LANG_LABELS.get(profile.get("preferred_language") or "en", "English")
     st.markdown(
-        f"""
-        <div class="sahay-card">
-            <div class="sahay-card-muted-label">MY PROFILE</div>
-            <p style="font-size:22px;font-weight:700;margin:2px 0 2px 0;">{display_name}</p>
-            <div class="sahay-card-caption">{user.email or ''}</div>
-        </div>
-        """,
+        '<div class="sahay-card sahay-profile-header">'
+        '<div class="sahay-card-muted-label">MY PROFILE</div>'
+        f'<p style="font-size:22px;font-weight:700;margin:2px 0 2px 0;">{_esc(display_name)}</p>'
+        f'<div class="sahay-card-caption">{_esc(user.email)}</div>'
+        f'<div class="sahay-card-caption">Preferred language: {_esc(lang)}</div>'
+        "</div>",
         unsafe_allow_html=True,
     )
-    c1, c2, c3 = st.columns(3)
-    for col, label, value in (
-        (c1, "MEMBER SINCE", member_since),
-        (c2, "CURRENT STREAK", f"🔥 {streak_label}"),
-        (c3, "CONVERSATIONS", conversation_count),
-    ):
-        with col:
-            st.markdown(
-                f'<div class="sahay-card"><div class="sahay-card-muted-label">{label}</div>'
-                f'<p class="sahay-card-metric" style="font-size:18px;">{value}</p></div>',
-                unsafe_allow_html=True,
-            )
 
 
-def _render_activity_links() -> None:
-    st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
-    st.markdown("##### Your activity")
-    links = [
-        ("💬 Conversation History", "conversations"),
-        ("📈 Mood History", "mood_history"),
-        ("📄 Reports", "reports"),
-    ]
-    cols = st.columns(len(links))
-    for col, (label, page_key) in zip(cols, links):
-        with col:
-            if st.button(label, key=f"profile_link_{page_key}", use_container_width=True):
-                st.session_state["sahay_page"] = page_key
-                st.rerun()
+def _render_stats(user, profile: dict) -> None:
+    stats = _load_stats(user)
+    member_since = _format_member_since(profile.get("created_at")) or "—"
+    items = (
+        ("MEMBER SINCE", member_since),
+        ("CURRENT STREAK", f"🔥 {stats['streak']}" if stats["streak"] != "—" else "—"),
+        ("CONVERSATIONS", stats["conversations"]),
+        ("MOOD CHECK-INS", stats["checkins"]),
+        ("WELLNESS ACTIVITIES", stats["activities"]),
+    )
+    cards = "".join(
+        f'<div class="sahay-card"><div class="sahay-card-muted-label">{label}</div>'
+        f'<p class="sahay-card-metric">{_esc(value)}</p></div>'
+        for label, value in items
+    )
+    st.markdown(f'{_PROFILE_CSS}<div class="sahay-profile-stats">{cards}</div>', unsafe_allow_html=True)
+
+
+def _render_quick_links() -> None:
+    render_section_header("Quick links")
+    links = [(label, key) for label, key in _QUICK_LINKS if key in ALL_PAGE_KEYS]
+    for i in range(0, len(links), 2):
+        cols = st.columns(2)
+        for col, (label, page_key) in zip(cols, links[i:i + 2]):
+            with col:
+                if st.button(label, key=f"profile_link_{page_key}", use_container_width=True):
+                    st.session_state["sahay_page"] = page_key
+                    st.rerun()
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+
+
+def _render_demo_mode() -> None:
+    st.markdown(
+        '<div class="sahay-card sahay-profile-header">'
+        '<div class="sahay-card-muted-label">MY PROFILE · DEMO MODE</div>'
+        '<p style="font-size:20px;font-weight:700;margin:2px 0 2px 0;">You\'re browsing without an account</p>'
+        '<div class="sahay-card-caption">No name, email, or account statistics are shown or stored in Demo Mode.</div>'
+        "</div>",
+        unsafe_allow_html=True,
+    )
+    st.text_input("Display name", placeholder="Not available in Demo Mode", disabled=True)
+    st.selectbox("Preferred language", ["English", "Hindi", "Hinglish"], disabled=True)
+    st.caption("Sign in (see the landing page) to create and edit a real profile.")
+    _render_quick_links()
 
 
 def render() -> None:
@@ -126,9 +178,7 @@ def render() -> None:
     ) else None
 
     if user is None:
-        st.text_input("Display name", placeholder="Not available in Demo Mode", disabled=True)
-        st.selectbox("Preferred language", ["English", "Hindi", "Hinglish"], disabled=True)
-        st.caption("Sign in (see the landing page) to create and edit a real profile.")
+        _render_demo_mode()
         return
 
     try:
@@ -142,32 +192,52 @@ def render() -> None:
         st.warning("No profile found for your account yet. Try refreshing the page.")
         return
 
-    _render_profile_overview(user, profile)
-    _render_activity_links()
+    if st.session_state.pop(_SAVED_FLASH_KEY, False):
+        st.success("Profile updated.")
 
-    st.caption(f"Signed in as {user.email}")
+    _render_header_card(user, profile)
+    _render_stats(user, profile)
+    _render_quick_links()
 
+    render_section_header("Edit profile")
     with st.form("profile_form"):
-        display_name = st.text_input("Display name", value=profile.get("display_name") or "")
+        display_name = st.text_input(
+            "Display name", value=profile.get("display_name") or "", max_chars=60,
+        )
+        st.text_input(
+            "Email address", value=user.email or "", disabled=True,
+            help="Your email is your sign-in identity and can't be changed here.",
+        )
         languages = ["English", "Hindi", "Hinglish"]
         current_lang_code = profile.get("preferred_language") or "en"
-        lang_labels = {"en": "English", "hi": "Hindi", "hinglish": "Hinglish"}
-        current_label = lang_labels.get(current_lang_code, "English")
+        current_label = _LANG_LABELS.get(current_lang_code, "English")
         preferred_language = st.selectbox(
             "Preferred language", languages,
             index=languages.index(current_label) if current_label in languages else 0,
         )
-        submitted = st.form_submit_button("Save changes", type="primary")
+        submitted = st.form_submit_button("Save changes", type="primary", use_container_width=True)
 
     if submitted:
         lang_code = {"English": "en", "Hindi": "hi", "Hinglish": "hinglish"}[preferred_language]
+        saved = False
         try:
             client = auth.get_client_for_current_user()
             client.table("profiles").update({
-                "display_name": display_name,
+                "display_name": display_name.strip(),
                 "preferred_language": lang_code,
             }).eq("id", user.id).execute()
-            st.success("Profile updated.")
+            saved = True
         except Exception as exc:  # noqa: BLE001
             st.error("Couldn't save your changes right now. Please try again.")
             st.caption(f"Technical detail (dev preview only): {exc}")
+        if saved:
+            # Rerun so the sidebar (rendered before this page) shows the new name.
+            st.session_state[_SAVED_FLASH_KEY] = True
+            st.rerun()
+
+    render_section_header("Account")
+    st.caption(f"Signed in as {user.email}")
+    if st.button("Log out", key="profile_logout", use_container_width=True):
+        # Same sign-out path as the sidebar's Log Out button.
+        from components.sidebar import _sign_out
+        _sign_out(True)
