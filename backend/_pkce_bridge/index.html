@@ -1,0 +1,47 @@
+<!doctype html>
+<html><head><meta charset="utf-8"></head><body><script>
+/* Sahay PKCE bridge: a zero-height Streamlit component. It runs inside an
+   iframe served by the app itself (same origin), so it can reach this
+   browser's localStorage and hand the value back to Python WITHOUT any page
+   reload or top-level navigation.
+   mode "store": save the PKCE verifier before the user leaves for Google.
+   mode "read" : on the OAuth callback, return the saved verifier once. */
+(function () {
+  var KEY = "sahay_pkce_verifier";
+  var RE = /^[A-Za-z0-9\-._~=+\/]{32,256}$/;
+  var readDone = false;
+
+  function post(type, extra) {
+    var m = { isStreamlitMessage: true, type: type };
+    for (var k in extra) { m[k] = extra[k]; }
+    window.parent.postMessage(m, "*");
+  }
+
+  function handle(args) {
+    if (args.mode === "store" && typeof args.verifier === "string" && RE.test(args.verifier)) {
+      try {
+        window.localStorage.setItem(KEY, JSON.stringify({ v: args.verifier, t: Date.now() }));
+      } catch (e) {}
+    } else if (args.mode === "read" && !readDone) {
+      readDone = true;
+      var v = "missing";
+      try {
+        var raw = window.localStorage.getItem(KEY);
+        if (raw) {
+          var o = JSON.parse(raw);
+          var ttl = args.ttl_ms || 900000;
+          if (o && typeof o.v === "string" && RE.test(o.v) && (Date.now() - o.t) < ttl) { v = o.v; }
+        }
+        window.localStorage.removeItem(KEY);
+      } catch (e) {}
+      post("streamlit:setComponentValue", { value: v, dataType: "json" });
+    }
+  }
+
+  window.addEventListener("message", function (e) {
+    if (e.data && e.data.type === "streamlit:render") { handle(e.data.args || {}); }
+  });
+  post("streamlit:componentReady", { apiVersion: 1 });
+  post("streamlit:setFrameHeight", { height: 0 });
+})();
+</script></body></html>
