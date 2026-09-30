@@ -36,9 +36,18 @@ conclusion, not a new key. NAV_GROUPS, ALL_PAGE_KEYS, DEFAULT_PAGE, and
 this module's public signature (`render_sidebar(authenticated, user) ->
 str`) are byte-identical to Phase 1–3 — streamlit_app.py needed no
 changes. See PHASE4_DASHBOARD_SHELL_REPORT.md for the full before/after.
+
+LAYOUT UPDATE (My Profile task): the sidebar now reads Sahay AI -> user
+name -> user email -> Notifications -> navigation. The bell that used to
+live in components/topbar.py moved here (one notification entry point,
+not two), and the bottom row keeps only the Log Out / Exit Demo Mode
+button so identity isn't shown twice. NAV_GROUPS, ALL_PAGE_KEYS,
+DEFAULT_PAGE, widget keys and render_sidebar()'s signature are unchanged.
 """
 
 from __future__ import annotations
+
+import html
 
 import streamlit as st
 
@@ -268,6 +277,8 @@ def render_sidebar(authenticated: bool = False, user=None) -> str:
             f"</div>",
             unsafe_allow_html=True,
         )
+        _render_identity(authenticated, user)
+        _render_notifications()
         st.markdown("---")
 
         for group_label, items in NAV_GROUPS:
@@ -290,25 +301,67 @@ def render_sidebar(authenticated: bool = False, user=None) -> str:
         # logic unchanged from Phase 1/2 — visual only) ----
         st.markdown("<div class='sahay-sidebar-profile'></div>", unsafe_allow_html=True)
         if authenticated and user is not None:
-            label = user.email or "Signed in"
-            st.markdown(
-                f"**{label}**  \n"
-                f"<span style='font-size:12px;color:#6B7280;'>Signed in</span>",
-                unsafe_allow_html=True,
-            )
             if st.button("Log Out", key="sidebar_signout", use_container_width=True):
                 _sign_out(authenticated)
         else:
-            st.markdown(
-                "**Student**  \n"
-                "<span style='font-size:12px;color:#6B7280;'>Demo Mode</span>",
-                unsafe_allow_html=True,
-            )
             if st.button("Exit Demo Mode", key="sidebar_exit_demo", use_container_width=True):
                 _sign_out(authenticated)
             st.caption("Sign in for a real, private account.")
 
     return st.session_state["sahay_page"]
+
+
+def _identity_name(user) -> str | None:
+    """Real display name from the user's own `profiles` row, falling back
+    to the email's local part. None if neither is available. Best-effort:
+    a Supabase hiccup must never break the sidebar."""
+    if user is None:
+        return None
+    try:
+        from backend import auth
+        profile = auth.get_profile(user)
+    except Exception:  # noqa: BLE001
+        profile = None
+    name = (profile or {}).get("display_name")
+    if name:
+        return name
+    if user.email:
+        return user.email.split("@", 1)[0]
+    return None
+
+
+def _render_identity(authenticated: bool, user) -> None:
+    """User name + email directly under the brand row (real data only).
+    Demo Mode shows a generic label — never a made-up person."""
+    if authenticated and user is not None:
+        name = html.escape(_identity_name(user) or "Signed in")
+        email = html.escape(user.email or "")
+        st.markdown(
+            f"<div style='padding:6px 0 2px 2px;'>"
+            f"<div style='font-weight:600;font-size:15px;overflow-wrap:anywhere;'>{name}</div>"
+            f"<div style='font-size:12.5px;color:#6B7280;overflow-wrap:anywhere;'>{email}</div>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            "<div style='padding:6px 0 2px 2px;'>"
+            "<div style='font-weight:600;font-size:15px;'>Demo Mode</div>"
+            "<div style='font-size:12.5px;color:#6B7280;'>Not signed in</div>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+
+
+def _render_notifications() -> None:
+    """The app's single notification entry point (moved here from the
+    topbar bell). Honest empty state: Sahay has no notification data
+    source yet, so nothing is invented."""
+    with st.expander("🔔 Notifications", expanded=False):
+        st.caption(
+            "No notifications yet. Live announcements from Sahay AI aren't enabled "
+            "in this build yet — this panel is ready for them."
+        )
 
 
 def _sign_out(authenticated: bool) -> None:
