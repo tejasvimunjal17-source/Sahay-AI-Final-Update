@@ -14,16 +14,9 @@ nothing invented). Everything below (safety_note, the demo-data caption,
 the 4 metric_card calls, the spacer, and the accent_card + its
 sahay_page="companion" navigation) is byte-identical to before.
 
-STREAK FEATURE (User Dashboard upgrade, explicitly requested): added a
-single real-data streak card at the top-left, above the existing demo
-metrics row. This is the ONLY change in this file — the 4 metric_card
-calls, their "Demo data" captions, and the accent_card below remain
-byte-identical and still show sample data as before (that scope was not
-part of this task). For a signed-in user the streak is computed from
-their own stored activity (backend/streak.py, reusing existing
-conversations/mood_events/wellness_activity_logs reads — no new table,
-no mock numbers). Demo Mode / signed-out shows an honest "sign in to
-track" placeholder instead of a fabricated figure."""
+STREAK: the dedicated streak card was removed from this page. The streak now
+lives only in the global top-right control (components/topbar.py).
+"""
 
 from __future__ import annotations
 
@@ -31,26 +24,6 @@ import streamlit as st
 
 from components.cards import metric_card, accent_card, safety_note
 from components.page_components.page_header import render_page_header
-from components.streak_widget import render_streak_widget
-
-
-def _current_user_streak():
-    """Returns backend.streak.StreakData for a real signed-in user, or
-    None for Demo Mode / signed-out — never a fabricated value. Any
-    fetch error is treated the same as "no user" rather than crashing
-    the Home page (streak is a supplementary card, not core navigation)."""
-    if not st.session_state.get("sahay_supabase_session"):
-        return None
-    try:
-        from backend import auth
-        user = auth.get_current_user()
-        if user is None:
-            return None
-        from backend import conversations as conv_db
-        from backend.streak import get_user_streak
-        return get_user_streak(user, conv_db)
-    except Exception:  # noqa: BLE001 - streak card degrades gracefully, rest of Home still renders
-        return None
 
 
 def render() -> None:
@@ -63,11 +36,6 @@ def render() -> None:
         "It is not a therapist, psychologist, psychiatrist, or doctor, and it "
         "does not replace professional care."
     )
-
-    streak_col, _spacer_col = st.columns([1, 2])
-    with streak_col:
-        render_streak_widget(_current_user_streak())
-    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
 
     st.caption("📊 Sample/demo data shown below — not connected to a real account yet.")
 
