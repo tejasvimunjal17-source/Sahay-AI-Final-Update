@@ -44,6 +44,52 @@ def _dot_color(status: str, dark: bool) -> str:
     return COLORS["muted_dark"] if dark else COLORS["muted_light"]
 
 
+def render_streak_popover_content(streak: StreakData | None) -> None:
+    """Compact content for the topbar's streak popover (components/topbar.py):
+    the same real StreakData, same no-fake-data rule, just laid out for a
+    small popover instead of a full-width card. Shares _dot_color() and
+    the StreakData shape with render_streak_widget() below — no second
+    streak implementation, only a second, smaller presentation of the
+    same data."""
+    dark = st.session_state.get("sahay_dark_mode", True)
+    muted = COLORS["muted_dark"] if dark else COLORS["muted_light"]
+
+    if streak is None:
+        st.markdown("**Streak**")
+        st.caption("Sign in to track your streak — it's based on your own activity only.")
+        return
+
+    if not streak.has_any_activity:
+        caption = "Chat, check in, or try a relaxation activity today to start a streak."
+    elif streak.current_streak == 0:
+        caption = "Your streak reset — do something today to start a new one."
+    elif streak.active_today:
+        unit = "day" if streak.current_streak == 1 else "days"
+        caption = f"{streak.current_streak} {unit} strong — keep it going!"
+    else:
+        caption = "Still counts today — be active before the day ends to extend it."
+
+    st.markdown(f"**🔥 {streak.current_streak} current streak**")
+    st.caption(caption)
+
+    dots_html = "".join(
+        f'<div class="sahay-streak-dot-col">'
+        f'<span class="sahay-streak-dot" style="background:{_dot_color(d["status"], dark)};'
+        f'{" outline:2px solid " + COLORS["deep_blue"] + ";" if d["is_today"] else ""}"></span>'
+        f'<span class="sahay-streak-day-label" style="color:{muted};">{d["label"][0]}</span>'
+        f"</div>"
+        for d in streak.week_days
+    )
+    st.markdown(
+        f'<div class="sahay-streak-week" style="margin-top:4px;">{dots_html}</div>'
+        "<style>.sahay-streak-week{display:flex;gap:7px;}"
+        ".sahay-streak-dot-col{display:flex;flex-direction:column;align-items:center;gap:3px;}"
+        ".sahay-streak-dot{width:9px;height:9px;border-radius:50%;display:inline-block;}"
+        ".sahay-streak-day-label{font-size:9px;}</style>",
+        unsafe_allow_html=True,
+    )
+
+
 def render_streak_widget(streak: StreakData | None) -> None:
     """Renders the compact streak card.
 
